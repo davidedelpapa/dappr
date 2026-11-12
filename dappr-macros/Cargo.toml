@@ -1,0 +1,20 @@
+[package]
+name = "dappr-macros"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+
+[dev-dependencies]
+wasm-bindgen-test.workspace = true
+
+[dependencies]
+proc-macro2.workspace = true
+quote.workspace = true
+syn.workspace = true
+cssparser.workspace = true
+lightningcss.workspace = true
+lazy_static.workspace = true
+dappr-styles.workspace = true

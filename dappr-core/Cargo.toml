@@ -1,0 +1,23 @@
+[package]
+name = "dappr-core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+dappr-macros.workspace = true
+wasm-bindgen.workspace = true
+web-sys.workspace = true
+gloo-events.workspace = true
+wasm-bindgen-futures.workspace = true
+sanitize_html = {workspace = true, optional = true}
+
+[dev-dependencies]
+wasm-bindgen-test.workspace = true
+
+[features]
+default = []
+all = ["sanitizehtml"]
+sanitizehtml = ["dep:sanitize_html"]

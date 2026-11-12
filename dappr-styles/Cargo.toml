@@ -1,0 +1,12 @@
+[package]
+name = "dappr-styles"
+version = "0.1.0"
+edition = "2021"
+description = "Build-time CSS discovery and bundling for Dappr apps (used from build.rs)"
+
+[lib]
+
+[dependencies]
+syn = { version = "2.0", features = ["full", "visit"] }
+lightningcss = "1.0.0-alpha.32"
+thiserror = "1.0"

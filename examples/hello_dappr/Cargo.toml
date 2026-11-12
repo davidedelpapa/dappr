@@ -1,0 +1,14 @@
+[package]
+name = "hello_dappr"
+version = "0.1.0"
+edition = "2021"
+authors = ["Davide Del Papa"]
+description = "Dappr hello world example"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+dappr = { path = "../../" }
+wasm-bindgen.workspace = true

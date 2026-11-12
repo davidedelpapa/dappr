@@ -1,0 +1,8 @@
+mine.md
+Cargo.lock
+archive.sh
+*.zip
+/inbox
+/target
+/DEST
+/pkg

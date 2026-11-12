@@ -1,0 +1,18 @@
+[package]
+name = "lifecycle"
+version = "0.1.0"
+edition = "2021"
+authors = ["Davide Del Papa"]
+description = "Dappr example: building and detaching components (Subscription, unmount, and the build.rs style pipeline)"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+dappr = { path = "../../" }
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+
+[build-dependencies]
+dappr-styles = { path = "../../dappr-styles" }
