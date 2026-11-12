@@ -46,3 +46,17 @@
     overflow-y: auto;
   }
 }
+
+/* The current value of a slider, shown at the right end of its label. */
+.dappr-field-value {
+  float: right;
+  color: var(--pico-muted-color);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A checkbox or switch on its own gets the same space below it as the other
+   fields, so what follows does not stick to it. */
+.dappr-field-check {
+  display: block;
+  margin-bottom: var(--pico-spacing);
+}

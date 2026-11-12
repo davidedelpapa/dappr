@@ -57,3 +57,7 @@ push-all: push push-core push-macros
 [working-directory: 'examples/layout']
 @example-layout:
     trunk serve --release
+
+[working-directory: 'examples/inputs']
+@example-inputs:
+    trunk serve --release

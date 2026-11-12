@@ -50,6 +50,9 @@ pub use dappr_macros::*;
 /// The main Dappr app, the entry point for all the components
 pub mod app;
 
+/// Typed inputs: number, slider, checkbox, switch, select, radio, text
+pub mod inputs;
+
 /// Layout containers: columns, cards, expanders, the sidebar
 pub mod layout;
 
@@ -66,6 +69,7 @@ pub mod prelude {
     pub use dappr_core::communication::signals::Signal;
     pub use dappr_core::communication::subscription::Subscription; // <-- added
     pub use dappr_core::components::button::*;
+    pub use dappr_core::components::field::Field;
     pub use dappr_core::components::html::*;
     pub use dappr_core::components::input::*;
     pub use dappr_core::components::text::*;

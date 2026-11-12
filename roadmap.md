@@ -48,17 +48,17 @@ Components:
 
 Forms
 
-- Inputs and textareas
+- Inputs and textareas -- OK (`text_input`, `textarea`, `number`)
 
-- Select
+- Select -- OK (`select`)
 
-- Checkboxes
+- Checkboxes -- OK (`checkbox`)
 
-- Radios
+- Radios -- OK (`radio`)
 
-- Switch
+- Switch -- OK (`switch`)
 
-- Ranges
+- Ranges -- OK (`slider`)
 
 - Use of componnts outside of forms
 

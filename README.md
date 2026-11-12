@@ -21,6 +21,31 @@ pub fn run() {
 }
 ```
 
+## Inputs
+
+Inputs are typed: each returns a `Field<T>` whose `.value()` is a reactive
+`Signal<T>`, so you compute with numbers and booleans, not strings.
+
+```rust
+dapp!(dapp, {
+    let price = dapp.number("Price", 9.5).min(0.0).step(0.5);     // f64
+    let quantity = dapp.slider("Quantity", 1.0, 20.0, 3.0);       // f64
+    let gift = dapp.checkbox("Gift wrap (+2)", false);            // bool
+    let unit = dapp.select("Currency", &["EUR", "USD"]);          // &str
+
+    let total = price.value()
+        .zip(&quantity.value())
+        .zip(&gift.value())
+        .map(|((p, q), gift)| p * q + if *gift { 2.0 } else { 0.0 });
+    text!("Total: {}", total);
+});
+```
+
+Available: `text_input`, `textarea`, `number`, `slider`, `checkbox`, `switch`,
+`select`, `radio`. Options of `select` and `radio` can be any type that is
+`Display + Clone + PartialEq`, including your own enums. `Signal::map` and
+`Signal::zip` derive new values from inputs. See `just example-inputs`.
+
 ## Layout
 
 Layout methods return a `Container`, which has every method the page has, so

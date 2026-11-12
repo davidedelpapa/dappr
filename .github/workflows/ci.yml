@@ -31,7 +31,7 @@ jobs:
       - name: Examples build for the browser
         run: >
           cargo build --target wasm32-unknown-unknown
-          -p hello_dappr -p button -p text -p rawhtml -p lifecycle -p layout
+          -p hello_dappr -p button -p text -p rawhtml -p lifecycle -p layout -p inputs
 
       - name: Browser tests (headless Chrome)
         run: wasm-pack test --headless --chrome --features sanitizehtml

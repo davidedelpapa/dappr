@@ -10,6 +10,7 @@ pub mod prelude {
     pub use crate::communication::signals::Signal;
     pub use crate::communication::subscription::Subscription;
     pub use crate::components::button::*;
+    pub use crate::components::field::Field;
     pub use crate::components::html::*;
     pub use crate::components::input::*;
     pub use crate::components::text::*;

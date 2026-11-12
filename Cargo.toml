@@ -37,12 +37,16 @@ web-sys = { version = "0.3", features = [
     "Element",
     "HtmlElement",
     "HtmlInputElement",
+    "HtmlTextAreaElement",
+    "HtmlSelectElement",
     "Event",
     "DomTokenList",
     "Node",
     "HtmlHeadElement",
     "CssStyleDeclaration",
     "DomRect",
+    "NodeList",
+    "HtmlLabelElement",
 ] }
 wasm-bindgen-test = "0.3"
 
