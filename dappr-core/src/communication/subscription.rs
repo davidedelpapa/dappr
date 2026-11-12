@@ -29,6 +29,9 @@
               (e.g. `let _sub = ...`), or call `.detach()` to keep it forever"]
 pub struct Subscription {
     detach: Option<Box<dyn FnOnce()>>,
+    /// Whether the detach action owns something that must outlive a call to
+    /// [`Subscription::detach`] (see [`Subscription::new_owning`]).
+    owns_resource: bool,
 }
 
 impl Subscription {
@@ -37,6 +40,23 @@ impl Subscription {
     pub(crate) fn new(detach: impl FnOnce() + 'static) -> Self {
         Subscription {
             detach: Some(Box::new(detach)),
+            owns_resource: false,
+        }
+    }
+
+    /// Like [`Subscription::new`], for a detach action that *owns* the thing
+    /// being kept alive -- in practice the `wasm_bindgen` `Closure` behind a
+    /// DOM event listener, which the browser can only call for as long as
+    /// the Rust side has not dropped it.
+    ///
+    /// For such a subscription, [`Subscription::detach`] leaks the action
+    /// instead of dropping it: dropping it would free the `Closure` while
+    /// the browser still holds the listener, and every later event would
+    /// fail with "closure invoked recursively or after being dropped".
+    pub(crate) fn new_owning(detach: impl FnOnce() + 'static) -> Self {
+        Subscription {
+            detach: Some(Box::new(detach)),
+            owns_resource: true,
         }
     }
 
@@ -46,7 +66,11 @@ impl Subscription {
     /// this method, when the thing it's attached to has its own,
     /// shorter lifetime.
     pub fn detach(mut self) {
-        self.detach.take();
+        let detach = self.detach.take();
+        if self.owns_resource {
+            // Deliberate leak: "alive for the remainder of the program".
+            std::mem::forget(detach);
+        }
     }
 }
 

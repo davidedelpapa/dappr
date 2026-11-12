@@ -7,15 +7,18 @@
 //! - `dappr-macros`' `style!`/`style_file!` proc macros call [`extract_class_names`]
 //!   to generate the `pub const` names for each CSS class (a pure, read-only
 //!   operation -- no file writes).
-//! - A consuming app's `build.rs` calls [`scan_dir`] + [`bundle`] to find every
-//!   `style!`/`style_file!` declaration in the crate's own source and produce
-//!   `static/styles.min.css` *before* `rustc` even starts compiling.
+//!   and [`scope_css`] to produce the matching, scoped CSS that the app
+//!   injects at runtime with `dapp.style(...)`. Nothing is written to disk.
+//! - Optionally, an app's `build.rs` can call [`scan_dir`] + [`bundle`] to
+//!   collect every `style!`/`style_file!` declaration into one static
+//!   stylesheet instead. Dappr itself does not need this.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use lightningcss::rules::CssRule;
+use lightningcss::css_modules::{Config as CssModulesConfig, Pattern};
+use lightningcss::rules::{CssRule, CssRuleList};
 use lightningcss::selector::Component as SelectorComponent;
 use lightningcss::stylesheet::{ParserOptions, PrinterOptions, StyleSheet};
 use lightningcss::traits::ToCss;
@@ -46,17 +49,12 @@ pub enum StyleError {
     Conflicts(String),
 }
 
-/// Pico's default CSS, embedded once, here, via `include_str!` (resolved
-/// relative to *this source file*, at compile time -- robust regardless of
-/// the caller's current working directory).
+/// Pico CSS, vendored in this crate (see `assets/vendor/pico.license`).
 ///
-/// Previously this file was embedded in two different places, through two
-/// different mechanisms: a `lazy_static` in `dappr-macros::bundler` (via
-/// `include_str!`, correctly), and a *second*, separate read in
-/// `dappr-macros::styles` via `std::fs::read_to_string("dappr-macros/src/assets/vendor/pico.min.css")`
-/// -- a path that only resolves if the build happens to be run from this
-/// exact monorepo's workspace root. Having exactly one copy, exposed by one
-/// function, removes both the duplication and the fragile path.
+/// This is the single copy in the workspace. The `sys_style_file!` macro
+/// embeds it into the `dappr` crate as a string constant, and `Dapp::new()`
+/// injects that into the page, so apps get the baseline look with no
+/// stylesheet link and no build step.
 pub fn pico_css() -> &'static str {
     include_str!("assets/vendor/pico.min.css")
 }
@@ -141,10 +139,12 @@ fn walk_rs_files(root: &Path) -> Result<Vec<PathBuf>, StyleError> {
     Ok(out)
 }
 
-/// Same CSS-class extraction previously in `dappr-macros`, but returning a
-/// proper error instead of silently swallowing a parse failure into an empty
-/// `Vec` -- a CSS typo now surfaces where it happened, not as a confusing
-/// "no such constant" error somewhere unrelated.
+/// Extracts every class name used in a selector anywhere in `css`,
+/// including inside `@media` / `@supports` blocks and nested rules.
+///
+/// Returns a proper error instead of silently swallowing a parse failure
+/// into an empty `Vec` -- a CSS typo surfaces where it happened, not as a
+/// confusing "no such constant" error somewhere unrelated.
 pub fn extract_class_names(
     scope: &str,
     source: &Path,
@@ -158,28 +158,92 @@ pub fn extract_class_names(
         })?;
 
     let mut class_names = Vec::new();
-    for rule in &stylesheet.rules.0 {
-        if let CssRule::Style(style_rule) = rule {
-            for selector in &style_rule.selectors.0 {
-                for component in selector.iter() {
-                    if let SelectorComponent::Class(class) = component {
-                        class_names.push(class.to_string());
-                    }
-                }
-            }
-        }
-    }
+    collect_class_names(&stylesheet.rules, &mut class_names);
+    class_names.sort();
+    class_names.dedup();
     Ok(class_names)
 }
 
-/// Concatenates every discovered scope's CSS (optionally prepended with
-/// framework defaults such as Pico), checks for cross-scope selector
-/// conflicts, and returns the minified result ready to write to
-/// `static/styles.min.css`.
+fn collect_class_names(rules: &CssRuleList, out: &mut Vec<String>) {
+    for rule in &rules.0 {
+        match rule {
+            CssRule::Style(style_rule) => {
+                for selector in &style_rule.selectors.0 {
+                    for component in selector.iter_raw_match_order() {
+                        if let SelectorComponent::Class(class) = component {
+                            out.push(class.to_string());
+                        }
+                    }
+                }
+                collect_class_names(&style_rule.rules, out);
+            }
+            CssRule::Media(media) => collect_class_names(&media.rules, out),
+            CssRule::Supports(supports) => collect_class_names(&supports.rules, out),
+            _ => {}
+        }
+    }
+}
+
+/// Rewrites every class (and id) selector in `css` from `.name` to
+/// `.{scope}-name`, and minifies the result.
+///
+/// This is what makes `style!`'s scoping real: the constants the macro
+/// generates (`scope::name == "{scope}-name"`) and the CSS that reaches the
+/// browser are produced from the same rule, so they always match.
+///
+/// Only selectors are renamed. Animation names, grid areas, container names
+/// and custom properties are left alone, so a scoped rule can still refer to
+/// things defined elsewhere (for instance one of Pico's `--pico-*` variables).
+pub fn scope_css(scope: &str, source: &Path, css: &str) -> Result<String, StyleError> {
+    let err = |message: String| StyleError::CssParse {
+        scope: scope.to_string(),
+        declared_in: source.to_path_buf(),
+        message,
+    };
+    let pattern_src = format!("{scope}-[local]");
+    let pattern = Pattern::parse(&pattern_src).map_err(|e| err(e.to_string()))?;
+    let options = ParserOptions {
+        css_modules: Some(CssModulesConfig {
+            pattern,
+            dashed_idents: false,
+            animation: false,
+            grid: false,
+            custom_idents: false,
+            container: false,
+            pure: false,
+        }),
+        ..Default::default()
+    };
+    let stylesheet = StyleSheet::parse(css, options).map_err(|e| err(e.to_string()))?;
+    let out = stylesheet
+        .to_css(PrinterOptions {
+            minify: true,
+            ..Default::default()
+        })
+        .map_err(|e| err(e.to_string()))?;
+    Ok(out.code)
+}
+
+/// Scopes every discovered style (see [`scope_css`]), checks that no two
+/// scopes style the very same selector, and returns one minified stylesheet.
+///
+/// Because class selectors are scoped, two scopes can both declare `.title`
+/// without clashing. What is still reported is two scopes styling the same
+/// *unscoped* selector, such as a bare `h1`.
+///
+/// `prepend_css` is emitted first, verbatim. Dappr injects Pico at runtime,
+/// so most callers pass `None`.
 pub fn bundle(styles: &[DiscoveredStyle], prepend_css: Option<&str>) -> Result<String, StyleError> {
     let mut rule_sources: HashMap<String, Vec<String>> = HashMap::new();
+    let mut all_css = String::new();
+    if let Some(prepend) = prepend_css {
+        all_css.push_str(prepend);
+        all_css.push('\n');
+    }
+
     for style in styles {
-        let stylesheet = StyleSheet::parse(&style.css, ParserOptions::default()).map_err(|e| {
+        let scoped = scope_css(&style.scope, &style.declared_in, &style.css)?;
+        let stylesheet = StyleSheet::parse(&scoped, ParserOptions::default()).map_err(|e| {
             StyleError::CssParse {
                 scope: style.scope.clone(),
                 declared_in: style.declared_in.clone(),
@@ -190,65 +254,31 @@ pub fn bundle(styles: &[DiscoveredStyle], prepend_css: Option<&str>) -> Result<S
             if let CssRule::Style(style_rule) = rule {
                 let selector = style_rule
                     .selectors
-                    .to_css_string(PrinterOptions {
-                        minify: false,
-                        ..Default::default()
-                    })
+                    .to_css_string(PrinterOptions::default())
                     .unwrap_or_default();
-                rule_sources
-                    .entry(selector)
-                    .or_default()
-                    .push(style.scope.clone());
+                let scopes = rule_sources.entry(selector).or_default();
+                if !scopes.contains(&style.scope) {
+                    scopes.push(style.scope.clone());
+                }
             }
         }
+        all_css.push_str(&scoped);
+        all_css.push('\n');
     }
 
-    let mut seen: HashSet<&str> = HashSet::new();
-    let conflicts: Vec<String> = rule_sources
+    let mut conflicts: Vec<String> = rule_sources
         .into_iter()
         .filter(|(_, scopes)| scopes.len() > 1)
         .map(|(selector, scopes)| {
             format!("  '{selector}' declared in scopes: {}", scopes.join(", "))
         })
         .collect();
-    // (`seen` intentionally unused beyond the filter above -- kept for a
-    // future improvement where near-duplicate selectors across scopes with
-    // different specificity get flagged too, not just exact matches.)
-    let _ = &mut seen;
-
+    conflicts.sort();
     if !conflicts.is_empty() {
         return Err(StyleError::Conflicts(conflicts.join("\n")));
     }
 
-    let mut all_css = String::new();
-    if let Some(prepend) = prepend_css {
-        all_css.push_str(prepend);
-        all_css.push('\n');
-    }
-    for style in styles {
-        all_css.push_str(&style.css);
-        all_css.push('\n');
-    }
-
-    let stylesheet = StyleSheet::parse(&all_css, ParserOptions::default()).map_err(|e| {
-        StyleError::CssParse {
-            scope: "<bundle>".to_string(),
-            declared_in: PathBuf::from("<in-memory bundle>"),
-            message: e.to_string(),
-        }
-    })?;
-    let minified = stylesheet
-        .to_css(PrinterOptions {
-            minify: true,
-            ..Default::default()
-        })
-        .map_err(|e| StyleError::CssParse {
-            scope: "<bundle>".to_string(),
-            declared_in: PathBuf::from("<in-memory bundle>"),
-            message: e.to_string(),
-        })?;
-
-    Ok(minified.code)
+    Ok(all_css)
 }
 
 // ---- AST walk -------------------------------------------------------------
@@ -365,7 +395,25 @@ mod tests {
     }
 
     #[test]
-    fn bundle_detects_conflicts() {
+    fn bundle_detects_conflicts_on_unscoped_selectors() {
+        let a = DiscoveredStyle {
+            scope: "a".into(),
+            css: "h1 { color: red; }".into(),
+            declared_in: PathBuf::from("a.rs"),
+            css_file: None,
+        };
+        let b = DiscoveredStyle {
+            scope: "b".into(),
+            css: "h1 { color: blue; }".into(),
+            declared_in: PathBuf::from("b.rs"),
+            css_file: None,
+        };
+        let err = bundle(&[a, b], None).unwrap_err();
+        assert!(matches!(err, StyleError::Conflicts(_)));
+    }
+
+    #[test]
+    fn bundle_scopes_classes_so_same_name_does_not_conflict() {
         let a = DiscoveredStyle {
             scope: "a".into(),
             css: ".shared { color: red; }".into(),
@@ -378,20 +426,34 @@ mod tests {
             declared_in: PathBuf::from("b.rs"),
             css_file: None,
         };
-        let err = bundle(&[a, b], None).unwrap_err();
-        assert!(matches!(err, StyleError::Conflicts(_)));
+        let css = bundle(&[a, b], Some(".base{margin:0}")).unwrap();
+        assert!(css.starts_with(".base{margin:0}"));
+        assert!(css.contains(".a-shared{color:red}"));
+        assert!(css.contains(".b-shared{color:#00f}"));
     }
 
     #[test]
-    fn bundle_minifies_and_prepends() {
-        let a = DiscoveredStyle {
-            scope: "a".into(),
-            css: ".a { color: red; }".into(),
-            declared_in: PathBuf::from("a.rs"),
-            css_file: None,
-        };
-        let css = bundle(&[a], Some(".base { margin: 0; }")).unwrap();
-        assert!(css.contains(".base{margin:0}"));
-        assert!(css.contains(".a{color:red}"));
+    fn scope_css_renames_selectors_only() {
+        let css = scope_css(
+            "card",
+            Path::new("t.rs"),
+            "@media (min-width: 10px) { .box:hover > .title { color: var(--pico-color); animation: spin 1s; } }",
+        )
+        .unwrap();
+        assert!(css.contains(".card-box:hover>.card-title"), "{css}");
+        assert!(css.contains("var(--pico-color)"), "{css}");
+        assert!(css.contains("spin"), "{css}");
+        assert!(!css.contains("card-spin"), "{css}");
+    }
+
+    #[test]
+    fn extract_class_names_looks_inside_media_queries() {
+        let names = extract_class_names(
+            "x",
+            Path::new("t.rs"),
+            ".a { color: red; } @media (min-width: 10px) { .b, .a { color: blue; } }",
+        )
+        .unwrap();
+        assert_eq!(names, vec!["a".to_string(), "b".to_string()]);
     }
 }

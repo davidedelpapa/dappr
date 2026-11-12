@@ -3,6 +3,7 @@ name = "rawhtml"
 version = "0.1.0"
 edition = "2021"
 authors = ["Davide Del Papa"]
+description = "Dappr example: raw and sanitized HTML"
 publish = false
 
 [lib]
@@ -11,3 +12,8 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 dappr = { path = "../../" }
 wasm-bindgen.workspace = true
+
+[features]
+# On by default so the example shows the sanitized variants too.
+default = ["sanitizehtml"]
+sanitizehtml = ["dappr/sanitizehtml"]

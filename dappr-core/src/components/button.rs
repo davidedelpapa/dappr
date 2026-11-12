@@ -53,11 +53,7 @@ impl Button {
 
         let dispatcher_clone = button.dsp.clone();
         let signal_clone = button.signal.clone();
-        // `.detach()`: `Button` has no unmount concept yet, so this listener
-        // is kept alive for the button's whole lifetime -- matching the
-        // previous (always-`.forget()`) behavior, but now via the shared,
-        // *working* `Component::add_event_listener` (see its docs) instead
-        // of hand-rolling a `Closure` + `.forget()` here directly.
+        // `.detach()`: the listener lives as long as the page does.
         button
             .add_event_listener("click", move |_event| {
                 dispatcher_clone.dispatch();
@@ -69,10 +65,8 @@ impl Button {
     }
     /// Button pressed callback.
     ///
-    /// `.detach()`: `Button` has no unmount concept yet, so -- matching the
-    /// previous, unconditional behavior -- this callback stays subscribed
-    /// for the button's whole lifetime. `pressed`'s own signature doesn't
-    /// change, so nothing here is a breaking change for callers.
+    /// The callback stays subscribed for the button's whole lifetime. It may
+    /// freely create components or call `pressed` again on the same button.
     pub fn pressed(&self, callback: impl Fn() + 'static) {
         self.dsp.subscribe(callback).detach();
     }
