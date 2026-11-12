@@ -1,0 +1,48 @@
+/* Dappr's own layout rules, added to the page right after Pico.
+   Everything here is prefixed `dappr-` so it cannot clash with app CSS. */
+
+/* Columns: stacked on small screens, side by side from 768px up (the same
+   breakpoint as Pico's .grid). The track sizes come from --dappr-columns,
+   which Dapp::columns / Dapp::columns_weighted set on the element. */
+.dappr-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  column-gap: var(--pico-grid-column-gap);
+  row-gap: var(--pico-grid-row-gap);
+  margin-bottom: var(--pico-spacing);
+}
+@media (min-width: 768px) {
+  .dappr-columns {
+    grid-template-columns: var(--dappr-columns, minmax(0, 1fr));
+  }
+}
+.dappr-column {
+  min-width: 0;
+}
+
+/* Sidebar: above the app on small screens, a fixed-height left column that
+   scrolls on its own from 992px up. */
+.dappr-sidebar {
+  padding: var(--pico-spacing);
+  background-color: var(--pico-card-sectioning-background-color);
+}
+@media (min-width: 992px) {
+  .dappr-has-sidebar {
+    display: grid;
+    grid-template-columns: 16rem minmax(0, 1fr);
+    align-items: start;
+  }
+  /* Pico sizes .container for a full-width page. Next to the sidebar it
+     fills its column instead (up to a readable width) and keeps a gutter. */
+  .dappr-has-sidebar > .container {
+    max-width: 75rem;
+    padding-right: calc(var(--pico-spacing) * 2);
+    padding-left: calc(var(--pico-spacing) * 2);
+  }
+  .dappr-sidebar {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+  }
+}

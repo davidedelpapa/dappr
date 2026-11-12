@@ -164,6 +164,14 @@ pub fn style_file_impl(input: TokenStream2, is_library_style: bool) -> TokenStre
             // crate's `pico_css()` for why that single source of truth
             // matters.
             "pico.css" => dappr_styles::pico_css().to_string(),
+            // Dappr's own layout rules, minified here so the wasm binary
+            // carries no comments or whitespace.
+            "dappr.css" => match dappr_styles::minify_css(dappr_styles::dappr_css()) {
+                Ok(css) => css,
+                Err(e) => {
+                    return syn::Error::new(path_lit.span(), e.to_string()).to_compile_error()
+                }
+            },
             other => {
                 return syn::Error::new(
                     path_lit.span(),

@@ -89,8 +89,9 @@ macro_rules! reactive_text_el {
 ///     });
 /// }
 /// ```
+#[derive(Clone)]
 pub struct Dapp {
-    root: HtmlElement,
+    pub(crate) root: HtmlElement,
 }
 
 impl Default for Dapp {
@@ -122,7 +123,7 @@ impl Dapp {
     /// It also adds Dappr's baseline stylesheet (Pico CSS, shipped inside the
     /// crate) to the page, so `index.html` needs no stylesheet link.
     pub fn new() -> Self {
-        inject_base_style(crate::PICO_STYLE::CSS);
+        inject_base_style(&[crate::PICO_STYLE::CSS, crate::DAPPR_STYLE::CSS].concat());
         let root = match document().get_element_by_id("dapp") {
             Some(dapp_el) => dapp_el
                 .dyn_into::<HtmlElement>()
@@ -166,7 +167,51 @@ impl Dapp {
         inject_style(css);
     }
 
-    fn append(&self, el: &HtmlElement) {
+    /// A Dapp that renders into `root`. This is what a layout container is.
+    pub(crate) fn from_root(root: HtmlElement) -> Self {
+        Self { root }
+    }
+
+    /// Runs `body` with this Dapp (or [`Container`](crate::layout::Container))
+    /// as the place where [`text!`](crate::text) and [`dapp!`](crate::dapp)
+    /// put things -- Dappr's version of Streamlit's `with col:` block.
+    ///
+    /// `body` also receives the container, for calling methods on it.
+    ///
+    /// ```no_run
+    /// use dappr::prelude::*;
+    /// use wasm_bindgen::prelude::*;
+    ///
+    /// #[wasm_bindgen(main)]
+    /// pub fn main() {
+    ///     dapp!(dapp, {
+    ///         let [left, right] = dapp.columns();
+    ///         left.with(|col| {
+    ///             text!("In the left column", _h3);
+    ///             col.button("Also in the left column");
+    ///         });
+    ///         right.with(|_| text!("In the right column"));
+    ///         text!("Back in the page, below both columns");
+    ///     });
+    /// }
+    /// ```
+    ///
+    /// This covers the code that runs *inside* `body`. A callback registered
+    /// there (say, with `button.pressed`) runs later, after `with` has
+    /// returned, so it should call `with` again on the container it targets.
+    pub fn with<R>(&self, body: impl FnOnce(&Dapp) -> R) -> R {
+        struct PopOnDrop;
+        impl Drop for PopOnDrop {
+            fn drop(&mut self) {
+                SCOPES.with(|scopes| scopes.borrow_mut().pop());
+            }
+        }
+        SCOPES.with(|scopes| scopes.borrow_mut().push(self.clone()));
+        let _pop = PopOnDrop; // pops even if `body` panics
+        body(self)
+    }
+
+    pub(crate) fn append(&self, el: &HtmlElement) {
         self.root
             .append_child(el)
             .expect("Failed to append to dapp's root");
@@ -1031,6 +1076,21 @@ thread_local! {
     pub static DAPP_INSTANCE: Rc<RefCell<Dapp>> = Rc::new(RefCell::new(Dapp::new()));
 }
 
+thread_local! {
+    /// The containers currently entered with [`Dapp::with`], innermost last.
+    static SCOPES: RefCell<Vec<Dapp>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Calls `f` with the Dapp that `text!` and `dapp!` currently target: the
+/// innermost container entered with [`Dapp::with`], or the page-level Dapp.
+#[doc(hidden)]
+pub fn with_current<R>(f: impl FnOnce(&Dapp) -> R) -> R {
+    let current = SCOPES
+        .with(|scopes| scopes.borrow().last().cloned())
+        .unwrap_or_else(|| DAPP_INSTANCE.with(|dapp| dapp.borrow().clone()));
+    f(&current)
+}
+
 /// text! macro: prints a text to the page.
 ///
 /// The `text!` maro iutputs a text to the page. It accepts various paraeters,
@@ -1128,284 +1188,268 @@ thread_local! {
 #[macro_export]
 macro_rules! text {
     ($text:expr) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().text_static($text);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.text_static($text);
         });
     };
     ($text:expr, _h1) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().h1_static($text);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.h1_static($text);
         });
     };
     ($text:expr, _h2) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().h2_static($text);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.h2_static($text);
         });
     };
     ($text:expr, _h3) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().h3_static($text);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.h3_static($text);
         });
     };
     ($text:expr, _h4) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().h4_static($text);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.h4_static($text);
         });
     };
     ($text:expr, _h5) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().h5_static($text);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.h5_static($text);
         });
     };
     ($text:expr, _p) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().p_static($text);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.p_static($text);
         });
     };
     ($text:expr, _div) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().div_static($text);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.div_static($text);
         });
     };
     ($text:expr, _title) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().title_static($text);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.title_static($text);
         });
     };
     ($text:expr, _subtitle) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().subtitle_static($text);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.subtitle_static($text);
         });
     };
     ($text:expr, _date) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().date_static($text);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.date_static($text);
         });
     };
     ($text:expr, _part) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().part_static($text);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.part_static($text);
         });
     };
     ($text:expr, _chapter) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().chapter_static($text);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.chapter_static($text);
         });
     };
     ($text:expr, _paragraph) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().paragraph_static($text);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.paragraph_static($text);
         });
     };
     ($text:expr, _subparagraph) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().subparagraph_static($text);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.subparagraph_static($text);
         });
     };
     ($text:expr, _html) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().html_static($text);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.html_static($text);
         });
     };
     //#[cfg(any(feature = "sanitizehtml", doc, test))]
     ($text:expr, _html, $sanitize:expr) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance
-                .borrow()
-                .sanitized_html_static($text, $sanitize);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.sanitized_html_static($text, $sanitize);
         });
     };
     ($template:expr, $signal:expr) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().text($template, $signal, None);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.text($template, $signal, None);
         });
     };
     ($template:expr, $signal:expr, _h1) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().h1($template, $signal, None);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.h1($template, $signal, None);
         });
     };
     ($template:expr, $signal:expr, _h2) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().h2($template, $signal, None);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.h2($template, $signal, None);
         });
     };
     ($template:expr, $signal:expr, _h3) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().h3($template, $signal, None);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.h3($template, $signal, None);
         });
     };
     ($template:expr, $signal:expr, _h4) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().h4($template, $signal, None);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.h4($template, $signal, None);
         });
     };
     ($template:expr, $signal:expr, _h5) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().h5($template, $signal, None);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.h5($template, $signal, None);
         });
     };
     ($template:expr, $signal:expr, _p) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().p($template, $signal, None);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.p($template, $signal, None);
         });
     };
     ($template:expr, $signal:expr, _div) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().div($template, $signal, None);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.div($template, $signal, None);
         });
     };
     ($template:expr, $signal:expr, _title) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().title($template, $signal, None);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.title($template, $signal, None);
         });
     };
     ($template:expr, $signal:expr, _subtitle) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().subtitle($template, $signal, None);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.subtitle($template, $signal, None);
         });
     };
     ($template:expr, $signal:expr, _date) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().date($template, $signal, None);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.date($template, $signal, None);
         });
     };
     ($template:expr, $signal:expr, _part) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().part($template, $signal, None);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.part($template, $signal, None);
         });
     };
     ($template:expr, $signal:expr, _chapter) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().chapter($template, $signal, None);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.chapter($template, $signal, None);
         });
     };
     ($template:expr, $signal:expr, _paragraph) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().paragraph($template, $signal, None);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.paragraph($template, $signal, None);
         });
     };
     ($template:expr, $signal:expr, _subparagraph) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance
-                .borrow()
-                .subparagraph($template, $signal, None);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.subparagraph($template, $signal, None);
         });
     };
     ($template:expr, $signal:expr, _html) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().html($template, $signal, None);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.html($template, $signal, None);
         });
     };
     //#[cfg(any(feature = "sanitizehtml", doc, test))]
     ($template:expr, $signal:expr, _html, $sanitize:expr) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance
-                .borrow()
-                .sanitized_html($template, $signal, None, $sanitize);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.sanitized_html($template, $signal, None, $sanitize);
         });
     };
     ($template:expr, $signal:expr, $init:expr) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().text($template, $signal, Some($init));
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.text($template, $signal, Some($init));
         });
     };
     ($template:expr, $signal:expr, $init:expr, _h1) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().h1($template, $signal, Some($init));
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.h1($template, $signal, Some($init));
         });
     };
     ($template:expr, $signal:expr, $init:expr, _h2) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().h2($template, $signal, Some($init));
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.h2($template, $signal, Some($init));
         });
     };
     ($template:expr, $signal:expr, $init:expr, _h3) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().h3($template, $signal, Some($init));
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.h3($template, $signal, Some($init));
         });
     };
     ($template:expr, $signal:expr, $init:expr, _h4) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().h4($template, $signal, Some($init));
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.h4($template, $signal, Some($init));
         });
     };
     ($template:expr, $signal:expr, $init:expr, _h5) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().h5($template, $signal, Some($init));
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.h5($template, $signal, Some($init));
         });
     };
     ($template:expr, $signal:expr, $init:expr, _p) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().p($template, $signal, Some($init));
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.p($template, $signal, Some($init));
         });
     };
     ($template:expr, $signal:expr, $init:expr, _div) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().div($template, $signal, Some($init));
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.div($template, $signal, Some($init));
         });
     };
     ($template:expr, $signal:expr, $init:expr, _title) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance
-                .borrow()
-                .title($template, $signal, Some($init));
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.title($template, $signal, Some($init));
         });
     };
     ($template:expr, $signal:expr, $init:expr, _subtitle) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance
-                .borrow()
-                .subtitle($template, $signal, Some($init));
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.subtitle($template, $signal, Some($init));
         });
     };
     ($template:expr, $signal:expr, $init:expr, _date) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().date($template, $signal, Some($init));
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.date($template, $signal, Some($init));
         });
     };
     ($template:expr, $signal:expr, $init:expr, _part) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().part($template, $signal, Some($init));
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.part($template, $signal, Some($init));
         });
     };
     ($template:expr, $signal:expr, $init:expr, _chapter) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance
-                .borrow()
-                .chapter($template, $signal, Some($init));
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.chapter($template, $signal, Some($init));
         });
     };
     ($template:expr, $signal:expr, $init:expr, _paragraph) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance
-                .borrow()
-                .paragraph($template, $signal, Some($init));
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.paragraph($template, $signal, Some($init));
         });
     };
     ($template:expr, $signal:expr, $init:expr, _subparagraph) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance
-                .borrow()
-                .subparagraph($template, $signal, Some($init));
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.subparagraph($template, $signal, Some($init));
         });
     };
     ($template:expr, $signal:expr, $init:expr, _html) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance.borrow().html($template, $signal, Some($init));
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.html($template, $signal, Some($init));
         });
     };
     //#[cfg(any(feature = "sanitizehtml", doc, test))]
     ($template:expr, $signal:expr, $init:expr, _html, $sanitize:expr) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            dapp_instance
-                .borrow()
-                .sanitized_html($template, $signal, Some($init), $sanitize);
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.sanitized_html($template, $signal, Some($init), $sanitize);
         });
     };
 }
 
 /// The dapp! macro open a context to use the global Dapp for reactive purposes.
+///
+/// Inside a [`Dapp::with`] block it gives the container being filled instead.
 ///
 /// # Example
 /// ```no_run
@@ -1423,9 +1467,6 @@ macro_rules! text {
 #[macro_export]
 macro_rules! dapp {
     ($var:ident, $code:block) => {
-        $crate::app::DAPP_INSTANCE.with(|dapp_instance| {
-            let $var = dapp_instance.borrow();
-            $code
-        });
+        $crate::app::with_current(|$var| $code);
     };
 }
