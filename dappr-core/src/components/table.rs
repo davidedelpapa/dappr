@@ -8,6 +8,7 @@
 // new: it builds DOM nodes instead of an HTML string, so cell text is always
 // escaped, and it no longer cuts text cells to 7 characters.
 use crate::communication::signals::Signal;
+use crate::data::load::Loadable;
 use crate::data::table::{Cell, DTable};
 use crate::framework::dom;
 use crate::framework::traits::Component;
@@ -19,7 +20,8 @@ use web_sys::HtmlElement;
 pub const DEFAULT_MAX_ROWS: usize = 1000;
 
 /// What a [`Table`] can show: a `DTable` (by value or reference) for a
-/// fixed table, or a `Signal<DTable>` for a reactive one.
+/// fixed table, a `Signal<DTable>` for a reactive one, or a
+/// `Signal<Loadable<DTable>>` for data being fetched or uploaded.
 pub trait TableSource {
     /// The data as a Signal.
     fn into_signal(self) -> Signal<DTable>;
@@ -42,6 +44,19 @@ impl TableSource for Signal<DTable> {
 impl TableSource for &Signal<DTable> {
     fn into_signal(self) -> Signal<DTable> {
         self.clone()
+    }
+}
+
+/// Data that is still loading (or failed to) is shown as an empty table;
+/// pair it with a load status to tell the user what is going on.
+impl TableSource for Signal<Loadable<DTable>> {
+    fn into_signal(self) -> Signal<DTable> {
+        self.map(Loadable::ready_or_default)
+    }
+}
+impl TableSource for &Signal<Loadable<DTable>> {
+    fn into_signal(self) -> Signal<DTable> {
+        self.map(Loadable::ready_or_default)
     }
 }
 

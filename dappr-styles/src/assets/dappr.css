@@ -90,3 +90,23 @@
   color: var(--pico-muted-color);
   margin-top: calc(var(--pico-spacing) * 0.5);
 }
+
+/* The load status line: Pico supplies the spinner (aria-busy); a failure is
+   shown in Pico's "invalid" colour. */
+.dappr-load-status {
+  color: var(--pico-muted-color);
+}
+.dappr-load-status.dappr-load-failed {
+  color: var(--pico-del-color);
+}
+
+/* Pico only spaces buttons inside a <form>. Dappr apps have no form, so a
+   button gets the same room below it as an input, wherever it is. */
+.dappr-sidebar > button,
+.dappr-column > button,
+#dapp > button,
+article > button,
+details > button,
+section > button {
+  margin-bottom: var(--pico-spacing);
+}

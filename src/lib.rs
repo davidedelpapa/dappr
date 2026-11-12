@@ -76,13 +76,16 @@ pub mod prelude {
     pub use dappr_core::communication::signals::Signal;
     pub use dappr_core::communication::subscription::Subscription; // <-- added
     pub use dappr_core::components::button::*;
-    pub use dappr_core::components::field::Field;
+    pub use dappr_core::components::field::{Field, UploadedFile};
     pub use dappr_core::components::html::*;
     pub use dappr_core::components::input::*;
+    pub use dappr_core::components::status::LoadStatus;
     pub use dappr_core::components::table::{Table, TableSource};
     pub use dappr_core::components::text::*;
     #[cfg(feature = "csv")]
     pub use dappr_core::data::csv::CsvOptions;
+    pub use dappr_core::data::fetch::{fetch_table, fetch_text, UrlSource};
+    pub use dappr_core::data::load::{parse_table, Loadable};
     pub use dappr_core::data::table::{Cell, DColumn, DTable, Row};
     pub use dappr_core::data::DataError;
     pub use dappr_core::framework::traits::*;

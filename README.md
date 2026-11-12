@@ -51,6 +51,13 @@ dapp!(dapp, {
   other delimiters, files without headers, strict row lengths. Numbers and
   booleans are recognised; empty fields are missing values.
 - **Columns:** `sum`, `mean`, `min`, `max`, `unique`.
+- **At runtime:** `fetch_table(url)` downloads a table, and
+  `dapp.file_upload("Your data").table()` reads a file the user picks (it
+  stays in the browser). Both give a `Signal<Loadable<DTable>>`:
+  `dapp.load_status(&data)` shows a spinner or the error, and
+  `dapp.table(&data)` shows the table once it is there. Pass `fetch_table` a
+  `Signal<String>` to fetch again whenever the URL changes. See
+  `just example-loading`.
 - **Cargo features:** `csv` and `json` are on by default; `ndarray` adds
   `DTable::from_ndarray`. Use `default-features = false` to drop the parsers
   you do not need.

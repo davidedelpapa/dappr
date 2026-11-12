@@ -1,0 +1,128 @@
+[
+ {
+  "station": "Harbour",
+  "day": "Mon",
+  "bikes_out": 80,
+  "avg_minutes": 16.7,
+  "rain": true
+ },
+ {
+  "station": "Harbour",
+  "day": "Tue",
+  "bikes_out": 174,
+  "avg_minutes": 14.5,
+  "rain": false
+ },
+ {
+  "station": "Harbour",
+  "day": "Wed",
+  "bikes_out": 175,
+  "avg_minutes": 6.2,
+  "rain": false
+ },
+ {
+  "station": "Old Town",
+  "day": "Mon",
+  "bikes_out": 86,
+  "avg_minutes": 15.9,
+  "rain": true
+ },
+ {
+  "station": "Old Town",
+  "day": "Tue",
+  "bikes_out": 140,
+  "avg_minutes": 15.7,
+  "rain": false
+ },
+ {
+  "station": "Old Town",
+  "day": "Wed",
+  "bikes_out": 121,
+  "avg_minutes": 17.5,
+  "rain": true
+ },
+ {
+  "station": "University",
+  "day": "Mon",
+  "bikes_out": 58,
+  "avg_minutes": 21.6,
+  "rain": false
+ },
+ {
+  "station": "University",
+  "day": "Tue",
+  "bikes_out": 23,
+  "avg_minutes": 18.1,
+  "rain": true
+ },
+ {
+  "station": "University",
+  "day": "Wed",
+  "bikes_out": 171,
+  "avg_minutes": 6.8,
+  "rain": false
+ },
+ {
+  "station": "Airport",
+  "day": "Mon",
+  "bikes_out": 88,
+  "avg_minutes": 14.5,
+  "rain": false
+ },
+ {
+  "station": "Airport",
+  "day": "Tue",
+  "bikes_out": 119,
+  "avg_minutes": 18.9,
+  "rain": false
+ },
+ {
+  "station": "Airport",
+  "day": "Wed",
+  "bikes_out": 121,
+  "avg_minutes": 19.1,
+  "rain": false
+ },
+ {
+  "station": "Riverside",
+  "day": "Mon",
+  "bikes_out": 54,
+  "avg_minutes": 21.8,
+  "rain": true
+ },
+ {
+  "station": "Riverside",
+  "day": "Tue",
+  "bikes_out": 54,
+  "avg_minutes": 14.9,
+  "rain": true
+ },
+ {
+  "station": "Riverside",
+  "day": "Wed",
+  "bikes_out": 131,
+  "avg_minutes": 20.0,
+  "rain": false
+ },
+ {
+  "station": "Market Square",
+  "day": "Mon",
+  "bikes_out": 127,
+  "avg_minutes": 15.1,
+  "rain": false
+ },
+ {
+  "station": "Market Square",
+  "day": "Tue",
+  "bikes_out": 109,
+  "avg_minutes": 15.6,
+  "rain": false
+ },
+ {
+  "station": "Market Square",
+  "day": "Wed",
+  "bikes_out": 79,
+  "avg_minutes": 22.3,
+  "rain": false
+ }
+]

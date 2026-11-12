@@ -8,6 +8,8 @@ pub mod field;
 pub mod html;
 /// The input component
 pub mod input;
+/// A status line for data being loaded
+pub mod status;
 /// A view of a `DTable`
 pub mod table;
 /// The text component

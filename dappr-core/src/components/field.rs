@@ -8,11 +8,16 @@
 //! The binding goes both ways: when the user changes the control the Signal
 //! is set, and when your code sets the Signal the control shows the new value.
 use crate::communication::signals::Signal;
+use crate::data::load::{parse_table, Loadable};
+use crate::data::table::DTable;
+use crate::data::DataError;
 use crate::framework::dom;
 use crate::framework::traits::Component;
 use std::cell::Cell;
 use std::fmt::Display;
+use std::rc::Rc;
 use wasm_bindgen::JsCast;
+use wasm_bindgen_futures::{spawn_local, JsFuture};
 use web_sys::{HtmlElement, HtmlInputElement, HtmlSelectElement, HtmlTextAreaElement};
 
 thread_local! {
@@ -343,6 +348,138 @@ impl Field<bool> {
     /// An on/off switch: a checkbox drawn as a toggle.
     pub fn switch(label: &str, initial: bool) -> Self {
         Self::boolean(label, initial, true)
+    }
+}
+
+// ---- Files ---------------------------------------------------------------
+
+/// A file the user picked with a [`file`](Field::file) field, already read
+/// into memory.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UploadedFile {
+    name: String,
+    mime: String,
+    bytes: Rc<Vec<u8>>,
+}
+
+impl UploadedFile {
+    /// A file from its parts. The browser builds these for you; this is for
+    /// tests and for data that comes from somewhere else.
+    pub fn new(name: &str, mime: &str, bytes: Vec<u8>) -> Self {
+        UploadedFile {
+            name: name.to_string(),
+            mime: mime.to_string(),
+            bytes: Rc::new(bytes),
+        }
+    }
+
+    /// The file's name, without any path.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// The MIME type the browser reports (`text/csv`, ...); may be empty.
+    pub fn mime(&self) -> &str {
+        &self.mime
+    }
+
+    /// The file's content.
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    /// Size in bytes.
+    pub fn size(&self) -> usize {
+        self.bytes.len()
+    }
+
+    /// The content as text. Bytes that are not valid UTF-8 are replaced
+    /// with the "unknown character" mark rather than causing an error.
+    pub fn text(&self) -> String {
+        String::from_utf8_lossy(&self.bytes).into_owned()
+    }
+
+    /// The content as a table: JSON for `.json` files, tab-separated for
+    /// `.tsv`, comma-separated otherwise (see [`parse_table`]).
+    pub fn table(&self) -> Result<DTable, DataError> {
+        parse_table(&self.name, &self.mime, &self.text())
+    }
+}
+
+impl Field<Option<UploadedFile>> {
+    /// A file picker. The value is `None` until the user picks a file, then
+    /// the file, read into memory. The file stays in the browser: nothing
+    /// is sent anywhere.
+    ///
+    /// Setting the value to `None` clears the picker.
+    pub fn file(label: &str) -> Self {
+        let input = input_el("file");
+        let signal: Signal<Option<UploadedFile>> = Signal::new(None);
+        // Reading is asynchronous. If the user picks again before a read
+        // finishes, only the newest pick may set the value.
+        let latest = Rc::new(Cell::new(0u64));
+
+        let (input_in, signal_in) = (input.clone(), signal.clone());
+        listen(&input, "change", move || {
+            let pick = latest.get() + 1;
+            latest.set(pick);
+            let Some(file) = input_in.files().and_then(|files| files.get(0)) else {
+                signal_in.set(None);
+                return;
+            };
+            let (signal, latest) = (signal_in.clone(), Rc::clone(&latest));
+            spawn_local(async move {
+                let Ok(buffer) = JsFuture::from(file.array_buffer()).await else {
+                    return;
+                };
+                if latest.get() != pick {
+                    return;
+                }
+                let bytes = js_sys::Uint8Array::new(&buffer).to_vec();
+                signal.set(Some(UploadedFile::new(&file.name(), &file.type_(), bytes)));
+            });
+        });
+        let input_out = input.clone();
+        signal
+            .subscribe(move |value| {
+                if value.is_none() {
+                    input_out.set_value("");
+                }
+            })
+            .detach();
+
+        let (el, _) = labelled(label, &input, false);
+        Field {
+            el,
+            control: input.into(),
+            signal,
+        }
+    }
+
+    /// Which files the picker offers: extensions and/or MIME types,
+    /// comma-separated, e.g. `".csv,.tsv,.json"`. Chainable.
+    ///
+    /// This is a convenience for the user, not a check: they can still pick
+    /// any file.
+    pub fn accept(self, accept: &str) -> Self {
+        self.control_attribute("accept", accept)
+    }
+
+    /// The picked file as a table: [`Idle`](Loadable::Idle) until a file is
+    /// picked, then [`Ready`](Loadable::Ready) with the table, or
+    /// [`Failed`](Loadable::Failed) if the file cannot be read as one.
+    ///
+    /// ```ignore
+    /// let upload = dapp.file_upload("Your data").accept(".csv,.json");
+    /// let data = upload.table();
+    /// dapp.load_status(&data);
+    /// dapp.table(&data);
+    /// ```
+    pub fn table(&self) -> Signal<Loadable<DTable>> {
+        self.signal.map(|file| match file {
+            None => Loadable::Idle,
+            Some(file) => file.table().into(),
+        })
     }
 }
 

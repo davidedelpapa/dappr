@@ -65,3 +65,7 @@ push-all: push push-core push-macros
 [working-directory: 'examples/data']
 @example-data:
     trunk serve --release
+
+[working-directory: 'examples/loading']
+@example-loading:
+    trunk serve --release

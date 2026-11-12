@@ -69,7 +69,7 @@ Forms
 
 - Use of componnts outside of forms
 
-- File upload (load a CSV or JSON picked by the user)
+- File upload (load a CSV or JSON picked by the user) -- OK (`file_upload`)
 
 Reactivity
 
@@ -103,7 +103,7 @@ Data types
     RawSvg, `plotters` through Canvas)*
   - mermaid
 
-- REST APIs (fetch)
+- REST APIs (fetch) -- OK for GET (`fetch_table`, `fetch_text`, refetch on a URL signal); POST, headers and authentication are still to do
 
 Packaging
 
