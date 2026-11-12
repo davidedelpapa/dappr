@@ -2,6 +2,11 @@
 
 Feb. 09, 2025 -- Davide Del Papa
 
+Updated Nov. 2026. Items marked *(rustream)* existed in the first version of
+this idea, [rustream](https://codeberg.org/davidedelpapa/rustream) (built on
+Yew), and are to be brought over. Ideas parked for later are in
+`backburner.md`.
+
 ## Features to implement
 
 Basic Elements to set up a page:
@@ -22,9 +27,9 @@ Content
 
 - Buttons (outside forms)
 
-- Tables
+- Tables -- OK (`dapp.table`, static or from a `Signal<DTable>`)
 
-- Toc
+- Toc, built automatically from the page's titles and headers *(rustream: `<Page>` + `<Toc>`)*
 
 Components:
 
@@ -38,7 +43,9 @@ Components:
 
 - Modals
 
-- Nav and menus
+- Nav and menus *(rustream: sticky, collapsible `<NavBar>` with `<Logo>` and `<NavMenu>`)*
+
+- Tabs -- see `backburner.md`
 
 - Bars (Progress bar)
 
@@ -62,22 +69,45 @@ Forms
 
 - Use of componnts outside of forms
 
+- File upload (load a CSV or JSON picked by the user)
+
+Reactivity
+
+- Derived values -- OK (`Signal::map`, `Signal::zip`, `computed!`)
+
+- Subscriptions tied to a component's lifetime, so derived signals created
+  in callbacks do not leak
+
 Data types
 
 - RawHtml -- OK
 
-- RawSvg
+- RawSvg *(rustream)*
 
-- Canvas
+- Canvas *(rustream: `<Canvas>` + `<CanvasElement>`)*
 
-- Markdown
+- Markdown *(rustream: via `pulldown-cmark`)*
 
-- Csv (Tsv, etc)
+- LaTeX *(rustream: via `katex`)*
 
-- Json
+- Csv (Tsv, etc) -- OK (`DTable::from_csv`, `from_tsv`, `CsvOptions`) *(rustream: delimiter / headers / flexible / trim options)*
 
-- DTable (With support for ndarrays)
+- Json -- OK for tables (`DTable::from_json`); a pretty-printed JSON view is still to do *(rustream: `<ViewJson>`)*
 
-- Charts (mermaid)
+- DTable (With support for ndarrays) -- OK (`ndarray` feature) *(rustream: `DTable` / `DColumn`)*
 
-- REST APIs
+- Table view of a DTable -- OK *(rustream: `<ViewTable>`, `<ViewCsv>`)*
+
+- Charts
+  - integrate existing Rust chart crates first *(rustream: `poloto` through
+    RawSvg, `plotters` through Canvas)*
+  - mermaid
+
+- REST APIs (fetch)
+
+Packaging
+
+- One Cargo feature per heavy component (csv, json, markdown, latex, ...) --
+  started (`csv`, `json`, `ndarray`, `sanitizehtml`), so
+  apps only pay in wasm size for what they use *(rustream; its README notes
+  3-4 MB wasm files as the problem this addresses)*

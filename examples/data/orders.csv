@@ -1,0 +1,61 @@
+order_id,date,region,product,units,unit_price,returned
+1001,2026-03-05,North,Kettle,1,45.0,true
+1002,2026-03-19,North,Espresso machine,8,249.0,false
+1003,2026-04-14,West,Espresso machine,2,249.0,true
+1004,2026-01-27,North,French press,1,27.5,false
+1005,2026-05-19,North,Kettle,1,45.0,false
+1006,2026-05-28,North,Coffee grinder,2,89.5,false
+1007,2026-05-10,South,French press,1,27.5,true
+1008,2026-03-04,South,French press,1,27.5,false
+1009,2026-04-22,West,French press,4,27.5,false
+1010,2026-05-15,South,Milk frother,2,34.9,false
+1011,2026-06-25,West,Coffee grinder,1,89.5,false
+1012,2026-03-24,North,Kettle,2,45.0,false
+1013,2026-01-17,South,Kettle,1,45.0,false
+1014,2026-04-14,East,Espresso machine,1,249.0,false
+1015,2026-03-23,West,Milk frother,12,34.9,false
+1016,2026-01-27,North,Espresso machine,2,249.0,false
+1017,2026-01-24,West,Pour-over set,2,39.0,false
+1018,2026-03-23,West,Kettle,3,45.0,true
+1019,2026-03-06,South,French press,1,27.5,false
+1020,2026-03-05,West,Pour-over set,2,39.0,false
+1021,2026-01-06,South,Kettle,4,45.0,false
+1022,2026-04-28,East,French press,2,27.5,false
+1023,2026-06-13,South,Coffee grinder,1,89.5,true
+1024,2026-02-22,South,Coffee grinder,1,89.5,false
+1025,2026-03-10,East,Espresso machine,1,249.0,false
+1026,2026-05-19,North,Milk frother,1,34.9,false
+1027,2026-04-28,West,Pour-over set,8,39.0,false
+1028,2026-04-04,North,Kettle,4,45.0,true
+1029,2026-02-15,North,Coffee grinder,1,89.5,false
+1030,2026-01-01,East,French press,1,27.5,false
+1031,2026-05-01,South,Espresso machine,2,249.0,false
+1032,2026-06-09,North,Milk frother,12,34.9,false
+1033,2026-01-28,East,Kettle,5,45.0,false
+1034,2026-01-05,West,Espresso machine,3,249.0,false
+1035,2026-06-06,East,French press,1,27.5,false
+1036,2026-02-23,East,French press,1,27.5,false
+1037,2026-06-28,South,Espresso machine,2,249.0,false
+1038,2026-03-25,East,Coffee grinder,8,89.5,false
+1039,2026-06-08,West,French press,2,27.5,false
+1040,2026-06-26,East,Coffee grinder,2,89.5,false
+1041,2026-06-01,South,Espresso machine,2,249.0,false
+1042,2026-06-20,East,Milk frother,5,34.9,false
+1043,2026-03-03,South,Coffee grinder,1,89.5,false
+1044,2026-03-07,North,Kettle,12,45.0,false
+1045,2026-04-21,North,Milk frother,1,34.9,false
+1046,2026-04-26,South,Pour-over set,2,39.0,false
+1047,2026-04-26,West,Pour-over set,3,39.0,true
+1048,2026-04-13,South,Pour-over set,1,39.0,false
+1049,2026-02-01,South,Coffee grinder,12,89.5,false
+1050,2026-05-27,East,French press,5,27.5,false
+1051,2026-02-18,North,French press,1,27.5,true
+1052,2026-05-24,South,Coffee grinder,4,89.5,false
+1053,2026-02-01,South,Milk frother,2,34.9,false
+1054,2026-05-11,South,Milk frother,8,34.9,false
+1055,2026-01-24,West,Milk frother,5,34.9,false
+1056,2026-05-05,North,French press,1,27.5,false
+1057,2026-04-25,South,Coffee grinder,12,89.5,true
+1058,2026-02-05,North,Kettle,12,45.0,false
+1059,2026-03-22,North,French press,8,27.5,false
+1060,2026-05-02,North,Coffee grinder,2,89.5,false

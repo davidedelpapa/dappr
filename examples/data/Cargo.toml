@@ -1,0 +1,14 @@
+[package]
+name = "data"
+version = "0.1.0"
+edition = "2021"
+authors = ["Davide Del Papa"]
+description = "Dappr example: load a CSV, filter and sort it with inputs, show a table"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+dappr = { path = "../../" }
+wasm-bindgen.workspace = true

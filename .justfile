@@ -5,9 +5,9 @@ build:
     cargo doc --no-deps --open
 
 test:
-    cargo test --workspace --features sanitizehtml
-    wasm-pack test --headless --firefox --features sanitizehtml
-    #wasm-pack test --headless --chrome --features sanitizehtml
+    cargo test --workspace --features all
+    wasm-pack test --headless --firefox --features all
+    #wasm-pack test --headless --chrome --features all
 
 clean:
     cargo clean
@@ -60,4 +60,8 @@ push-all: push push-core push-macros
 
 [working-directory: 'examples/inputs']
 @example-inputs:
+    trunk serve --release
+
+[working-directory: 'examples/data']
+@example-data:
     trunk serve --release

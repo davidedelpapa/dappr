@@ -21,6 +21,42 @@ pub fn run() {
 }
 ```
 
+## Data
+
+`DTable` is a small table of typed cells. Load one from CSV or JSON (or build
+it row by row), reshape it with `filter` / `sort_by` / `select` / `head`, and
+show it with `dapp.table`. Give `dapp.table` a `Signal<DTable>` and the table
+on the page follows your inputs:
+
+```rust
+dapp!(dapp, {
+    let orders = DTable::from_csv(include_str!("../orders.csv")).unwrap();
+
+    let region = dapp.select("Region", &["North", "South"]).value();
+    let min_units = dapp.slider("Minimum units", 1.0, 12.0, 1.0).value();
+
+    // Recomputed whenever any listed signal changes.
+    let shown = computed!(region, min_units => {
+        orders
+            .filter(|row| row.text("region") == Some(region) && row.number("units") >= Some(min_units))
+            .sort_by("units", true)
+    });
+
+    dapp.text("{} orders", shown.map(|table| table.n_rows()), None);
+    dapp.table(&shown);
+});
+```
+
+- **Loading:** `DTable::from_csv`, `from_tsv`, `from_json`; `CsvOptions` for
+  other delimiters, files without headers, strict row lengths. Numbers and
+  booleans are recognised; empty fields are missing values.
+- **Columns:** `sum`, `mean`, `min`, `max`, `unique`.
+- **Cargo features:** `csv` and `json` are on by default; `ndarray` adds
+  `DTable::from_ndarray`. Use `default-features = false` to drop the parsers
+  you do not need.
+
+See `just example-data`.
+
 ## Inputs
 
 Inputs are typed: each returns a `Field<T>` whose `.value()` is a reactive
