@@ -21,6 +21,32 @@ pub fn run() {
 }
 ```
 
+## Layout
+
+Layout methods return a `Container`, which has every method the page has, so
+layouts nest:
+
+```rust
+dapp!(dapp, {
+    let sidebar = dapp.sidebar();
+    let name = sidebar.input("Your name");
+
+    let [left, right] = dapp.columns();          // or dapp.columns_weighted([2, 1])
+    left.card_titled("Greeting").text("Hello, {}!", name.text(), None);
+
+    // `with` makes text! write into a container, like Streamlit's `with col:`
+    right.with(|col| {
+        text!("Right column", _h3);
+        col.button("Click me");
+    });
+
+    dapp.expander("Details").p_static("Hidden until opened.");
+});
+```
+
+Available: `container`, `section`, `columns`, `columns_weighted`, `card`,
+`card_titled`, `expander`, `expander_open`, `sidebar`. See `just example-layout`.
+
 ## Styling
 
 Apps are styled out of the box. [Pico CSS](https://picocss.com) is vendored in

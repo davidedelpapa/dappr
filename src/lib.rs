@@ -50,12 +50,16 @@ pub use dappr_macros::*;
 /// The main Dappr app, the entry point for all the components
 pub mod app;
 
+/// Layout containers: columns, cards, expanders, the sidebar
+pub mod layout;
+
 /// Prelude: all the needed imports to run a data app
 pub mod prelude {
     pub use crate::app::Dapp;
     #[doc(hidden)]
     pub use crate::app::DAPP_INSTANCE;
     pub use crate::dapp;
+    pub use crate::layout::Container;
     pub use crate::text;
 
     pub use dappr_core::communication::dispatcher::Dispatcher;
@@ -78,3 +82,7 @@ pub mod prelude {
 // Generates `PICO_STYLE::CSS` (the stylesheet, injected by `Dapp::new`) and
 // one constant per Pico class, e.g. `PICO_STYLE::container == "container"`.
 sys_style_file!("PICO_STYLE", "pico.css");
+// Dappr's own layout rules (columns, sidebar), from
+// dappr-styles/src/assets/dappr.css. Same shape: `DAPPR_STYLE::CSS` plus one
+// constant per class, e.g. `DAPPR_STYLE::dappr_columns == "dappr-columns"`.
+sys_style_file!("DAPPR_STYLE", "dappr.css");

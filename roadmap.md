@@ -8,11 +8,11 @@ Basic Elements to set up a page:
 
 Layouts:
 
-- Containers
+- Containers -- OK (`container`, `with`)
 
-- Sectioning
+- Sectioning -- OK (`section`, `sidebar`)
 
-- Simple Grid
+- Simple Grid -- OK (`columns`, `columns_weighted`)
 
 Content
 
@@ -28,9 +28,9 @@ Content
 
 Components:
 
-- Accordion
+- Accordion -- OK (`expander`)
 
-- Card
+- Card -- OK (`card`, `card_titled`)
 
 - Dropdown
 

@@ -59,6 +59,11 @@ pub fn pico_css() -> &'static str {
     include_str!("assets/vendor/pico.min.css")
 }
 
+/// Dappr's own layout CSS (columns, sidebar), added to the page after Pico.
+pub fn dappr_css() -> &'static str {
+    include_str!("assets/dappr.css")
+}
+
 /// A single `style!`/`style_file!` declaration found in the source tree.
 #[derive(Debug, Clone)]
 pub struct DiscoveredStyle {
@@ -215,6 +220,24 @@ pub fn scope_css(scope: &str, source: &Path, css: &str) -> Result<String, StyleE
         ..Default::default()
     };
     let stylesheet = StyleSheet::parse(css, options).map_err(|e| err(e.to_string()))?;
+    let out = stylesheet
+        .to_css(PrinterOptions {
+            minify: true,
+            ..Default::default()
+        })
+        .map_err(|e| err(e.to_string()))?;
+    Ok(out.code)
+}
+
+/// Minifies `css` without renaming anything.
+pub fn minify_css(css: &str) -> Result<String, StyleError> {
+    let err = |message: String| StyleError::CssParse {
+        scope: "<minify>".to_string(),
+        declared_in: PathBuf::from("<in-memory css>"),
+        message,
+    };
+    let stylesheet =
+        StyleSheet::parse(css, ParserOptions::default()).map_err(|e| err(e.to_string()))?;
     let out = stylesheet
         .to_css(PrinterOptions {
             minify: true,

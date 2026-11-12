@@ -53,3 +53,7 @@ push-all: push push-core push-macros
 [working-directory: 'examples/lifecycle']
 @example-lifecycle:
     trunk serve --release
+
+[working-directory: 'examples/layout']
+@example-layout:
+    trunk serve --release
