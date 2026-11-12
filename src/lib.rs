@@ -28,14 +28,15 @@
 //!         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 //!         <title>Hello Dappr</title>
 //!         <link data-trunk rel="rust" />
-//!         <link data-trunk rel="css" href="static/styles.min.css" />
 //!     </head>
 //!     <body>
 //!         <main id="dapp" class="container"></main>
 //!     </body>
 //! </html>
 //! ```
-//! Build the above with: `wasm-pack build --target web` and run it with `trunk serve`.
+//! Run it with `trunk serve`. There is no stylesheet to link and no build
+//! script to write: Dappr's baseline style ([Pico CSS](https://picocss.com))
+//! ships inside the crate and is added to the page when the app starts.
 //!
 //! More examples in the [examples](../examples/) directory
 //!
@@ -72,6 +73,8 @@ pub mod prelude {
     #[doc(hidden)]
     pub use std::rc::Rc;
 }
-// Default stle from Pico CSS ✨ v2.0.6 (https://picocss.com)
-// See also dappr-macros/src/assets/vendor/pico.license.
+// Default style: Pico CSS v2.0.6 (https://picocss.com), vendored in
+// dappr-styles/src/assets/vendor/ (see pico.license there).
+// Generates `PICO_STYLE::CSS` (the stylesheet, injected by `Dapp::new`) and
+// one constant per Pico class, e.g. `PICO_STYLE::container == "container"`.
 sys_style_file!("PICO_STYLE", "pico.css");

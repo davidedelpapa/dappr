@@ -17,6 +17,7 @@ pub fn run() {
             "This is another example of sanitized HTML which removes <a href='#'>links</a> and <span>blocks</span> but leaves <em>inline markup</em>.",
             Sanitize::Restricted,
         );
+        #[cfg(feature = "sanitizehtml")]
         let input = dapp.input("Insert some HTML code");
         #[cfg(feature = "sanitizehtml")]
         text!(

@@ -60,7 +60,9 @@ pub trait Component {
         element
             .add_event_listener_with_callback(&event_type, closure.as_ref().unchecked_ref())
             .unwrap_or_else(|_| panic!("Cannot add the event listener of type: {}", event_type));
-        Subscription::new(move || {
+        // `new_owning`: this action owns `closure`, which must stay alive for
+        // as long as the listener is attached -- including after `.detach()`.
+        Subscription::new_owning(move || {
             let _ = element
                 .remove_event_listener_with_callback(&event_type, closure.as_ref().unchecked_ref());
         })
@@ -85,11 +87,10 @@ pub trait Component {
 
     /// Binds a Signal to the component. This can also have a template and be initially rendered or not.
     ///
-    /// The subscription this creates is `.detach()`'d internally: a bound
-    /// component in this library currently lives for the whole app's
-    /// lifetime (there's no "unmount" yet), so this preserves the exact
-    /// previous behavior. If/when components gain an explicit unmount, this
-    /// is the `Subscription` that unmounting would need to drop instead.
+    /// The subscription this creates is `.detach()`'d internally, so the
+    /// binding lasts as long as the Signal does, even after
+    /// [`Component::unmount`]. Subscribe to the Signal yourself and keep the
+    /// [`Subscription`] if you need to end it earlier.
     fn bind_signal<T: Display + Clone + 'static>(
         &self,
         signal: Signal<T>,

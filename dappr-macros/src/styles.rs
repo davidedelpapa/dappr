@@ -1,29 +1,18 @@
-//! `style!` and `style_file!` -- generate scoped Rust class-name constants
-//! from CSS.
+//! `style!` and `style_file!` -- generate scoped Rust class-name constants,
+//! plus the matching scoped CSS, from a block of CSS.
 //!
-//! These macros used to *also* be responsible for staging CSS into a `pkg/`
-//! directory as a side effect of macro expansion, which `prepare_dapp!()`
-//! then bundled at some other, unspecified point during the same crate's
-//! compilation. That coupling is gone: these macros now do exactly one
-//! thing -- parse CSS and emit `pub const` names for its classes -- and
-//! never touch the filesystem for writing. The actual CSS *bundling* into
-//! `static/styles.min.css` is a separate, well-defined step that runs in
-//! `build.rs`, before `rustc` even starts (see `dappr-styles::bundle` and
-//! this crate's `build.rs` for the app-side half of this).
-//!
-//! Both halves independently discover the same `style!`/`style_file!`
-//! declarations (this file, at macro-expansion time, to generate constants;
-//! `build.rs`, before compilation, to generate the bundle) using the same
-//! `dappr-styles` crate. That's a deliberate bit of duplicated *reading*
-//! work in exchange for removing all cross-macro *write* coordination --
-//! reads are cheap and side-effect-free, so there's nothing to get wrong by
-//! doing it twice.
+//! These macros are pure: they parse CSS and emit constants, and never write
+//! to the filesystem. For `style!("card", ".title { .. }")` the output is a
+//! module `card` holding one `pub const` per class (`card::title ==
+//! "card-title"`) and `card::CSS`, the same CSS with every class selector
+//! renamed the same way (`.card-title{..}`). Both come from
+//! `dappr-styles`, so the names and the selectors cannot drift apart. The
+//! app adds the CSS to the page at runtime with `dapp.style(card::CSS)`.
 
-use dappr_styles::extract_class_names;
+use dappr_styles::{extract_class_names, scope_css};
 use proc_macro2::TokenStream as TokenStream2;
 use proc_macro2::{Ident, Span};
 use quote::quote;
-use std::collections::HashSet;
 use std::path::Path;
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
@@ -42,28 +31,61 @@ impl Parse for Args {
     }
 }
 
+/// Builds the module a style macro expands to.
+///
+/// `css` is emitted as the module's `CSS` constant. With `scoped`, constant
+/// values are `{scope}-{class}` (matching what [`scope_css`] did to `css`);
+/// without it they are the bare class names, which is what the vendored
+/// library stylesheet (Pico) needs, since its selectors are left untouched.
 #[doc(hidden)]
-fn generate_class_constants(
+fn generate_style_module(
     scope: String,
-    class_names: HashSet<String>,
+    class_names: Vec<String>,
+    css: &str,
+    scoped: bool,
 ) -> proc_macro2::TokenStream {
     let class_constants = class_names.iter().map(|class_name| {
         let rust_safe_ident = class_name.replace('-', "_"); // Convert to valid Rust identifier
         let ident = Ident::new(&rust_safe_ident, Span::call_site());
-        let scoped_name = format!("{}-{}", scope, class_name); // Keep original class name for the value
+        let value = if scoped {
+            format!("{}-{}", scope, class_name)
+        } else {
+            class_name.clone()
+        };
 
         quote! {
-            pub const #ident: &str = #scoped_name;
+            pub const #ident: &str = #value;
         }
     });
 
     let scope_ident = Ident::new(scope.as_str(), Span::call_site());
 
     quote! {
+        #[allow(non_snake_case, non_upper_case_globals, dead_code)]
         pub mod #scope_ident {
             #(#class_constants)*
+            /// The CSS for this scope, ready for `Dapp::style`.
+            pub const CSS: &str = #css;
         }
     }
+}
+
+/// Shared tail of both macros: extract the class names, scope the CSS
+/// (unless it is the library stylesheet), and build the module.
+#[doc(hidden)]
+fn expand_style(
+    scope: String,
+    source: &Path,
+    css: &str,
+    scoped: bool,
+) -> Result<proc_macro2::TokenStream, String> {
+    let class_names = extract_class_names(&scope, source, css).map_err(|e| e.to_string())?;
+    let out_css = if scoped {
+        scope_css(&scope, source, css).map_err(|e| e.to_string())?
+    } else {
+        css.to_string()
+    };
+    Ok(generate_style_module(scope, class_names, &out_css, scoped))
 }
 
 /// Parses the two-string-literal argument shape shared by `style!` and
@@ -93,7 +115,7 @@ fn parse_two_str_args(input: TokenStream2, usage: &str) -> syn::Result<(syn::Lit
 }
 
 /// Validates that a scope name will actually work as the Rust module name
-/// `generate_class_constants` turns it into (`pub mod #scope { ... }`).
+/// `generate_style_module` turns it into (`pub mod #scope { ... }`).
 ///
 /// Without this check, a scope like `"my-app"` -- a very plausible real
 /// choice, hyphens are everywhere in crate/package naming -- would reach
@@ -172,10 +194,13 @@ pub fn style_file_impl(input: TokenStream2, is_library_style: bool) -> TokenStre
         }
     };
 
-    match extract_class_names(&scope, Path::new(&file_path), &css_content) {
-        Ok(class_names) => {
-            generate_class_constants(scope, class_names.into_iter().collect::<HashSet<_>>())
-        }
+    match expand_style(
+        scope,
+        Path::new(&file_path),
+        &css_content,
+        !is_library_style,
+    ) {
+        Ok(tokens) => tokens,
         Err(e) => syn::Error::new(
             path_lit.span(),
             format!("style_file!: invalid CSS in '{file_path}': {e}"),
@@ -200,10 +225,8 @@ pub fn style_impl(input: TokenStream2) -> TokenStream2 {
     };
     let styles = styles_lit.value();
 
-    match extract_class_names(&scope, Path::new("<inline style!>"), &styles) {
-        Ok(class_names) => {
-            generate_class_constants(scope, class_names.into_iter().collect::<HashSet<_>>())
-        }
+    match expand_style(scope.clone(), Path::new("<inline style!>"), &styles, true) {
+        Ok(tokens) => tokens,
         Err(e) => syn::Error::new(
             styles_lit.span(),
             format!("style!: invalid CSS for scope '{scope}': {e}"),
@@ -226,14 +249,14 @@ mod tests {
     ///
     /// (The previous version of this test helper only compared inner items
     /// and never looked at the module's ident at all, so a bug that made
-    /// `generate_class_constants` emit the wrong module name -- unrelated
+    /// `generate_style_module` emit the wrong module name -- unrelated
     /// to the scope it was given -- would have passed silently. Comparing
     /// `module.ident` here closes that gap.)
     fn module_name_and_sorted_consts(tokens: TokenStream2) -> (String, Vec<(String, String)>) {
         let file: File = syn::parse2(tokens).expect("generated output should be valid Rust");
         let item_mod = match file.items.first() {
             Some(syn::Item::Mod(m)) => m,
-            other => panic!("expected a single module item, got {other:?}"),
+            _ => panic!("expected a single module item"),
         };
         let mut consts: Vec<(String, String)> = item_mod
             .content
@@ -272,6 +295,10 @@ mod tests {
         assert_eq!(
             consts,
             vec![
+                (
+                    "CSS".to_string(),
+                    ".testscope1-class1{color:red}.testscope1-class2{color:#00f}".to_string()
+                ),
                 ("class1".to_string(), "testscope1-class1".to_string()),
                 ("class2".to_string(), "testscope1-class2".to_string()),
             ]
@@ -321,7 +348,13 @@ mod tests {
         assert_eq!(module_name, "testscope_unterminated");
         assert_eq!(
             consts,
-            vec![("btn".to_string(), "testscope_unterminated-btn".to_string())]
+            vec![
+                (
+                    "CSS".to_string(),
+                    ".testscope_unterminated-btn{color:red}".to_string()
+                ),
+                ("btn".to_string(), "testscope_unterminated-btn".to_string())
+            ]
         );
     }
 
@@ -369,6 +402,10 @@ mod tests {
         assert_eq!(
             consts,
             vec![
+                (
+                    "CSS".to_string(),
+                    ".testscope2-class1{color:red}.testscope2-class2{color:#00f}".to_string()
+                ),
                 ("class1".to_string(), "testscope2-class1".to_string()),
                 ("class2".to_string(), "testscope2-class2".to_string()),
             ]
@@ -396,6 +433,10 @@ mod tests {
         // Pico ships a lot of classes -- just check we actually found some,
         // without hardcoding the exact set (that would just be re-testing
         // Pico's own CSS, and would break every time Pico is upgraded).
-        assert!(!consts.is_empty());
+        assert!(consts.len() > 1);
+        // Library styles are not scoped: the constant is the bare class
+        // name, and CSS is the stylesheet exactly as vendored.
+        assert!(consts.contains(&("container".to_string(), "container".to_string())));
+        assert!(consts.contains(&("CSS".to_string(), dappr_styles::pico_css().to_string())));
     }
 }
