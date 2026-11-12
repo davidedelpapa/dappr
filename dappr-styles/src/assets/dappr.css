@@ -46,3 +46,47 @@
     overflow-y: auto;
   }
 }
+
+/* The current value of a slider, shown at the right end of its label. */
+.dappr-field-value {
+  float: right;
+  color: var(--pico-muted-color);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A checkbox or switch on its own gets the same space below it as the other
+   fields, so what follows does not stick to it. */
+.dappr-field-check {
+  display: block;
+  margin-bottom: var(--pico-spacing);
+}
+
+/* Tables: numbers are right-aligned with fixed-width digits so they line up
+   down a column. */
+.dappr-number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.dappr-table {
+  margin-bottom: var(--pico-spacing);
+}
+.dappr-table > table {
+  margin-bottom: 0;
+}
+/* Cells stay on one line (a date must not break at its hyphens); a table
+   wider than the page scrolls sideways inside its wrapper. */
+.dappr-table th,
+.dappr-table td {
+  white-space: nowrap;
+}
+.dappr-table caption {
+  caption-side: top;
+  text-align: left;
+  font-weight: bold;
+  padding-bottom: calc(var(--pico-spacing) * 0.5);
+}
+.dappr-table-note {
+  display: block;
+  color: var(--pico-muted-color);
+  margin-top: calc(var(--pico-spacing) * 0.5);
+}

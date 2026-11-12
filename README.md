@@ -21,6 +21,67 @@ pub fn run() {
 }
 ```
 
+## Data
+
+`DTable` is a small table of typed cells. Load one from CSV or JSON (or build
+it row by row), reshape it with `filter` / `sort_by` / `select` / `head`, and
+show it with `dapp.table`. Give `dapp.table` a `Signal<DTable>` and the table
+on the page follows your inputs:
+
+```rust
+dapp!(dapp, {
+    let orders = DTable::from_csv(include_str!("../orders.csv")).unwrap();
+
+    let region = dapp.select("Region", &["North", "South"]).value();
+    let min_units = dapp.slider("Minimum units", 1.0, 12.0, 1.0).value();
+
+    // Recomputed whenever any listed signal changes.
+    let shown = computed!(region, min_units => {
+        orders
+            .filter(|row| row.text("region") == Some(region) && row.number("units") >= Some(min_units))
+            .sort_by("units", true)
+    });
+
+    dapp.text("{} orders", shown.map(|table| table.n_rows()), None);
+    dapp.table(&shown);
+});
+```
+
+- **Loading:** `DTable::from_csv`, `from_tsv`, `from_json`; `CsvOptions` for
+  other delimiters, files without headers, strict row lengths. Numbers and
+  booleans are recognised; empty fields are missing values.
+- **Columns:** `sum`, `mean`, `min`, `max`, `unique`.
+- **Cargo features:** `csv` and `json` are on by default; `ndarray` adds
+  `DTable::from_ndarray`. Use `default-features = false` to drop the parsers
+  you do not need.
+
+See `just example-data`.
+
+## Inputs
+
+Inputs are typed: each returns a `Field<T>` whose `.value()` is a reactive
+`Signal<T>`, so you compute with numbers and booleans, not strings.
+
+```rust
+dapp!(dapp, {
+    let price = dapp.number("Price", 9.5).min(0.0).step(0.5);     // f64
+    let quantity = dapp.slider("Quantity", 1.0, 20.0, 3.0);       // f64
+    let gift = dapp.checkbox("Gift wrap (+2)", false);            // bool
+    let unit = dapp.select("Currency", &["EUR", "USD"]);          // &str
+
+    let total = price.value()
+        .zip(&quantity.value())
+        .zip(&gift.value())
+        .map(|((p, q), gift)| p * q + if *gift { 2.0 } else { 0.0 });
+    text!("Total: {}", total);
+});
+```
+
+Available: `text_input`, `textarea`, `number`, `slider`, `checkbox`, `switch`,
+`select`, `radio`. Options of `select` and `radio` can be any type that is
+`Display + Clone + PartialEq`, including your own enums. `Signal::map` and
+`Signal::zip` derive new values from inputs. See `just example-inputs`.
+
 ## Layout
 
 Layout methods return a `Container`, which has every method the page has, so

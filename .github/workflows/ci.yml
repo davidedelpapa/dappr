@@ -26,12 +26,12 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Native tests (signals, macros, CSS scoping, doc tests)
-        run: cargo test --workspace --features sanitizehtml
+        run: cargo test --workspace --features all
 
       - name: Examples build for the browser
         run: >
           cargo build --target wasm32-unknown-unknown
-          -p hello_dappr -p button -p text -p rawhtml -p lifecycle -p layout
+          -p hello_dappr -p button -p text -p rawhtml -p lifecycle -p layout -p inputs -p data
 
       - name: Browser tests (headless Chrome)
-        run: wasm-pack test --headless --chrome --features sanitizehtml
+        run: wasm-pack test --headless --chrome --features all

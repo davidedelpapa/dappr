@@ -112,6 +112,49 @@ impl<T: Clone + 'static> Signal<T> {
         })
     }
 
+    /// A new Signal whose value is always `f` applied to this one's.
+    ///
+    /// This is how you compute things from inputs:
+    ///
+    /// ```ignore
+    /// let celsius = dapp.number("Celsius", 20.0);
+    /// let fahrenheit = celsius.value().map(|c| c * 9.0 / 5.0 + 32.0);
+    /// text!("That is {} F", fahrenheit);
+    /// ```
+    ///
+    /// The derived Signal follows this one for as long as this one exists.
+    pub fn map<U, F>(&self, f: F) -> Signal<U>
+    where
+        U: Clone + 'static,
+        F: Fn(&T) -> U + 'static,
+    {
+        let derived = Signal::new(f(&self.get()));
+        let derived_in = derived.clone();
+        self.subscribe(move |value| derived_in.set(f(value)))
+            .detach();
+        derived
+    }
+
+    /// A new Signal holding this one's value paired with `other`'s, updated
+    /// when either changes. Combine it with [`map`](Signal::map) to compute
+    /// from two inputs (and nest `zip` for more):
+    ///
+    /// ```ignore
+    /// let total = price.value().zip(&quantity.value()).map(|(p, q)| p * q);
+    /// ```
+    pub fn zip<U: Clone + 'static>(&self, other: &Signal<U>) -> Signal<(T, U)> {
+        let derived = Signal::new((self.get(), other.get()));
+
+        let (derived_in, other_in) = (derived.clone(), other.clone());
+        self.subscribe(move |value| derived_in.set((value.clone(), other_in.get())))
+            .detach();
+        let (derived_in, self_in) = (derived.clone(), self.clone());
+        other
+            .subscribe(move |value| derived_in.set((self_in.get(), value.clone())))
+            .detach();
+        derived
+    }
+
     /// The number of currently-live subscriptions. Mostly useful for tests
     /// asserting that `Subscription`s actually detach.
     #[cfg(test)]
@@ -282,5 +325,31 @@ mod tests {
         signal.set(50);
         assert_eq!(signal.get(), 10);
         assert_eq!(seen.borrow().last(), Some(&10));
+    }
+
+    #[test]
+    fn test_map_follows_its_source() {
+        let celsius = Signal::new(0.0);
+        let fahrenheit = celsius.map(|c| c * 9.0 / 5.0 + 32.0);
+        assert_eq!(fahrenheit.get(), 32.0);
+        celsius.set(100.0);
+        assert_eq!(fahrenheit.get(), 212.0);
+    }
+
+    #[test]
+    fn test_zip_updates_when_either_side_changes() {
+        let price = Signal::new(2.5);
+        let quantity = Signal::new(4u32);
+        let total = price.zip(&quantity).map(|(p, q)| p * f64::from(*q));
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let seen_c = Rc::clone(&seen);
+        total
+            .subscribe(move |t| seen_c.borrow_mut().push(*t))
+            .detach();
+
+        assert_eq!(total.get(), 10.0);
+        quantity.set(10);
+        price.set(1.0);
+        assert_eq!(*seen.borrow(), vec![25.0, 10.0]);
     }
 }

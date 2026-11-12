@@ -50,14 +50,24 @@ pub use dappr_macros::*;
 /// The main Dappr app, the entry point for all the components
 pub mod app;
 
+/// Showing data: tables
+pub mod data;
+
+/// Typed inputs: number, slider, checkbox, switch, select, radio, text
+pub mod inputs;
+
 /// Layout containers: columns, cards, expanders, the sidebar
 pub mod layout;
+
+/// Values computed from several signals: the `computed!` macro
+pub mod reactive;
 
 /// Prelude: all the needed imports to run a data app
 pub mod prelude {
     pub use crate::app::Dapp;
     #[doc(hidden)]
     pub use crate::app::DAPP_INSTANCE;
+    pub use crate::computed;
     pub use crate::dapp;
     pub use crate::layout::Container;
     pub use crate::text;
@@ -66,9 +76,15 @@ pub mod prelude {
     pub use dappr_core::communication::signals::Signal;
     pub use dappr_core::communication::subscription::Subscription; // <-- added
     pub use dappr_core::components::button::*;
+    pub use dappr_core::components::field::Field;
     pub use dappr_core::components::html::*;
     pub use dappr_core::components::input::*;
+    pub use dappr_core::components::table::{Table, TableSource};
     pub use dappr_core::components::text::*;
+    #[cfg(feature = "csv")]
+    pub use dappr_core::data::csv::CsvOptions;
+    pub use dappr_core::data::table::{Cell, DColumn, DTable, Row};
+    pub use dappr_core::data::DataError;
     pub use dappr_core::framework::traits::*;
     pub use dappr_core::*;
     pub use dappr_macros::*;

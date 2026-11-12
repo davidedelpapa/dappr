@@ -13,11 +13,17 @@ web-sys.workspace = true
 gloo-events.workspace = true
 wasm-bindgen-futures.workspace = true
 sanitize_html = {workspace = true, optional = true}
+csv = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+ndarray = { workspace = true, optional = true }
 
 [dev-dependencies]
 wasm-bindgen-test.workspace = true
 
 [features]
 default = []
-all = ["sanitizehtml"]
+all = ["csv", "json", "ndarray", "sanitizehtml"]
+csv = ["dep:csv"]
+json = ["dep:serde_json"]
+ndarray = ["dep:ndarray"]
 sanitizehtml = ["dep:sanitize_html"]
