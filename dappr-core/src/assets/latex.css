@@ -1,0 +1,145 @@
+/* Layout rules for the MathML that pulldown-latex produces (aligned
+   equations, cases, matrices, rules in arrays, equation numbers).
+
+   Taken from pulldown-latex 0.8.0 (styles.css), MIT licence, Copyright 2024
+   Charles Edward Gagnon -- see latex.license next to this file.
+   Changes: the web-font rules are left out (no fonts are shipped; see the
+   font list below), the `m|` namespace prefix is dropped so the rules can
+   live in a stylesheet shared with HTML, and the stroke of negated operators
+   uses the text colour so it shows in dark mode. */
+
+/* Math needs a font with a MATH table to look right. These are the ones
+   commonly installed; `math` is the browser's own choice. */
+math {
+    font-family: "Latin Modern Math", "STIX Two Math", "Cambria Math", "Noto Sans Math", math;
+}
+
+.dappr-latex {
+    margin-bottom: var(--pico-spacing);
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+/* MathML css styling */
+mtd {
+    padding-left: 0;
+    padding-right: 0;
+}
+
+
+mo.small {
+    font-size: 70%;
+}
+
+merror>mtext {
+    font-family: monospace;
+    white-space-collapse: preserve;
+    display: block;
+    text-align: left;
+}
+
+mtable {
+    border-color: currentColor;
+    border-spacing: 0;
+    border-collapse: collapse;
+}
+
+mtr:last-child>mtd:empty:only-child {
+    display: none;
+}
+
+mtr:last-child:has(> mtd:empty)::after {
+    display: none;
+}
+
+mtable.menv-alignlike>mtr>mtd:nth-child(odd),
+mtable.menv-cells-right>mtr>mtd,
+mtable.menv-multline>mtr>mtd:last-child,
+mtd.cell-right {
+    text-align: right;
+    text-align: -webkit-right;
+    text-align: -moz-right
+}
+
+mtable.menv-alignlike>mtr>mtd:nth-child(even),
+mtable.menv-cells-left>mtr>mtd,
+mtable.menv-multline>mtr>mtd:first-child,
+mtd.cell-left {
+    text-align: left;
+}
+
+mtable.menv-multline>mtr>mtd {
+    width: 100%;
+}
+
+mtable.menv-align>mtr>mtd:nth-child(2n + 3) {
+    padding-left: 1em;
+}
+
+mtable.menv-cases>mtr>mtd:first-child {
+    padding-right: 1em;
+}
+
+mtable.menv-arraylike>mtr>mtd {
+    padding-left: 0.4em;
+    padding-right: 0.4em;
+}
+
+mtable.menv-matrix>mtr>mtd:first-child {
+    padding-left: 0;
+}
+
+mtable.menv-matrix>mtr>mtd:last-child {
+    padding-right: 0;
+}
+
+mtable.menv-with-eqn>mtr:not(:has(> mtd.menv-nonumber)) {
+    counter-increment: eq-number;
+}
+
+mtable.menv-with-eqn>mtr:not(:has(> mtd.menv-nonumber))::after {
+    position: absolute;
+    right: 0;
+    padding: 0 0.4em;
+    content: "(" counter(eq-number) ")";
+}
+
+mo.mop-negated {
+    background: linear-gradient(to top left, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0) calc(50% - 0.8px), currentColor 50%, rgba(0, 0, 0, 0) calc(50% + 0.8px), rgba(0, 0, 0, 0) 100%)
+}
+
+mtd.menv-left-solid {
+    border-left: 0.06em solid;
+}
+
+mtd.menv-right-solid {
+    border-right: 0.06em solid;
+}
+
+mtd.menv-left-dashed {
+    border-left: 0.06em dashed;
+}
+
+mtd.menv-right-dashed {
+    border-right: 0.06em dashed;
+}
+
+mtr.menv-hline {
+    border-top: 0.06em solid;
+}
+
+mtr.menv-hdashline {
+    border-top: 0.06em dashed;
+}
+
+mtr.menv-hline>mtd.menv-nonumber:only-child,
+mtr.menv-hdashline:empty>mtd.menv-nonumber:only-child {
+    padding-top: 0.1em;
+    padding-bottom: 0;
+}
+
+mtd.menv-border-only:empty {
+    width: 0.1em;
+    padding: 0;
+    margin: 0;
+}

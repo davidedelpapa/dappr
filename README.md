@@ -60,7 +60,8 @@ dapp!(dapp, {
   `just example-loading`.
 - **Cargo features:** `csv` and `json` are on by default; `ndarray` adds
   `DTable::from_ndarray`. Use `default-features = false` to drop the parsers
-  you do not need.
+  you do not need (they cost nothing in an app that never calls them, but
+  they do take time to compile).
 
 See `just example-data`.
 
@@ -92,6 +93,35 @@ For anything these do not cover, use a plotting crate: `dapp.svg(text)` shows
 SVG output (for example from `poloto`), and `dapp.canvas(w, h)` gives you a
 canvas to draw on (for example with `plotters`). See `just example-charts` and
 `just example-chart-crates`.
+
+## Markdown and LaTeX
+
+```rust
+dapp.markdown("## Method\n\nWe fit a **linear** model, $y = ax + b$.");
+dapp.latex(r"\hat{a} = \frac{\sum (x_i - \bar{x})(y_i - \bar{y})}{\sum (x_i - \bar{x})^2}");
+
+// Both follow a Signal<String>: a live preview of what the user types.
+let notes = dapp.textarea("Notes (Markdown)");
+dapp.markdown(notes.value());
+
+// text! shorthands, with a template and a signal if you like.
+text!("Total: **{}**", total, _md);
+```
+
+- **Markdown** covers headings, emphasis, lists, links, images, code, tables,
+  task lists and footnotes; `$...$` and `$$...$$` are math.
+- **Safe by default.** HTML written inside Markdown is shown as text, links
+  that would run script go nowhere, and LaTeX cannot add markup, so text from
+  users, files and APIs can be shown as is. `dapp.markdown_with_html` allows
+  HTML, for text that is part of your app.
+- **Nothing to add to `index.html`.** Math is drawn as MathML, which browsers
+  display themselves. It looks best where a math font is installed (Cambria
+  Math, STIX Two Math, Latin Modern Math); most desktops have one.
+- **Cargo features:** `markdown` and `latex`, both on by default. Together
+  they add roughly 300 KB to the wasm of an app that uses them, and nothing to
+  one that does not.
+
+See `just example-prose`.
 
 ## Inputs
 

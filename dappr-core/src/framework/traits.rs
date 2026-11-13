@@ -116,3 +116,36 @@ pub trait Component {
             .detach();
     }
 }
+
+/// Text for a component that can follow a Signal: plain text (`&str`,
+/// `String`) for something fixed, or a `Signal<String>` to update whenever
+/// it changes.
+pub trait TextSource {
+    /// The text as a Signal.
+    fn into_text_signal(self) -> Signal<String>;
+}
+impl TextSource for &str {
+    fn into_text_signal(self) -> Signal<String> {
+        Signal::new(self.to_string())
+    }
+}
+impl TextSource for String {
+    fn into_text_signal(self) -> Signal<String> {
+        Signal::new(self)
+    }
+}
+impl TextSource for &String {
+    fn into_text_signal(self) -> Signal<String> {
+        Signal::new(self.clone())
+    }
+}
+impl TextSource for Signal<String> {
+    fn into_text_signal(self) -> Signal<String> {
+        self
+    }
+}
+impl TextSource for &Signal<String> {
+    fn into_text_signal(self) -> Signal<String> {
+        self.clone()
+    }
+}

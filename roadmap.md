@@ -86,9 +86,9 @@ Data types
 
 - Canvas -- OK (`dapp.canvas`, `Canvas::draw_on`) *(rustream: `<Canvas>` + `<CanvasElement>`)*
 
-- Markdown *(rustream: via `pulldown-cmark`)*
+- Markdown -- OK (`dapp.markdown`, `text!(.., _md)`; safe by default) *(rustream: via `pulldown-cmark`)*
 
-- LaTeX *(rustream: via `katex`)*
+- LaTeX -- OK (`dapp.latex`, `text!(.., _latex)`, math in Markdown), as MathML via `pulldown-latex` instead of KaTeX. Still to do: an optional bundled math font, for machines that have none *(rustream: via `katex`)*
 
 - Csv (Tsv, etc) -- OK (`DTable::from_csv`, `from_tsv`, `CsvOptions`) *(rustream: delimiter / headers / flexible / trim options)*
 
@@ -111,6 +111,6 @@ Data types
 Packaging
 
 - One Cargo feature per heavy component (csv, json, markdown, latex, ...) --
-  started (`csv`, `json`, `ndarray`, `sanitizehtml`), so
+  started (`csv`, `json`, `markdown`, `latex`, `ndarray`, `sanitizehtml`), so
   apps only pay in wasm size for what they use *(rustream; its README notes
   3-4 MB wasm files as the problem this addresses)*

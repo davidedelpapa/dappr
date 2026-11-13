@@ -14,10 +14,14 @@ pub mod prelude {
     pub use crate::communication::subscription::Subscription;
     pub use crate::components::button::*;
     pub use crate::components::chart::Chart;
-    pub use crate::components::drawing::{Canvas, Svg, SvgSource};
+    pub use crate::components::drawing::{Canvas, Svg};
     pub use crate::components::field::{Field, UploadedFile};
     pub use crate::components::html::*;
     pub use crate::components::input::*;
+    #[cfg(feature = "latex")]
+    pub use crate::components::markdown::Latex;
+    #[cfg(feature = "markdown")]
+    pub use crate::components::markdown::Markdown;
     pub use crate::components::status::LoadStatus;
     pub use crate::components::table::{Table, TableSource};
     pub use crate::components::text::*;

@@ -11,37 +11,10 @@
 // rustream had a TODO about is now generated, one per canvas.
 use crate::communication::signals::Signal;
 use crate::framework::dom;
-use crate::framework::traits::Component;
+use crate::framework::traits::{Component, TextSource};
 use std::cell::Cell;
 use wasm_bindgen::JsCast;
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, HtmlElement};
-
-/// What an [`Svg`] can show: SVG text (`&str`, `String`) for a fixed
-/// drawing, or a `Signal<String>` to redraw whenever it changes.
-pub trait SvgSource {
-    /// The SVG text as a Signal.
-    fn into_signal(self) -> Signal<String>;
-}
-impl SvgSource for &str {
-    fn into_signal(self) -> Signal<String> {
-        Signal::new(self.to_string())
-    }
-}
-impl SvgSource for String {
-    fn into_signal(self) -> Signal<String> {
-        Signal::new(self)
-    }
-}
-impl SvgSource for Signal<String> {
-    fn into_signal(self) -> Signal<String> {
-        self
-    }
-}
-impl SvgSource for &Signal<String> {
-    fn into_signal(self) -> Signal<String> {
-        self.clone()
-    }
-}
 
 /// An SVG drawing on the page, from SVG text.
 ///
@@ -55,8 +28,8 @@ pub struct Svg {
 
 impl Svg {
     /// Shows `source`.
-    pub fn new(source: impl SvgSource) -> Self {
-        let source = source.into_signal();
+    pub fn new(source: impl TextSource) -> Self {
+        let source = source.into_text_signal();
         let el = dom::create_element("div");
         el.set_class_name("dappr-svg");
         el.set_inner_html(&source.get());

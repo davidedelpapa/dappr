@@ -323,3 +323,34 @@ article .dappr-chart {
   max-width: 100%;
   height: auto;
 }
+
+/* ---- Markdown -------------------------------------------------------------
+   Pico styles the elements Markdown produces; these are the gaps. */
+.dappr-markdown {
+  margin-bottom: var(--pico-spacing);
+}
+.dappr-markdown > :last-child {
+  margin-bottom: 0;
+}
+.dappr-markdown img {
+  max-width: 100%;
+  height: auto;
+}
+/* Wide tables and long code lines scroll instead of stretching the page. */
+.dappr-markdown table {
+  display: block;
+  overflow-x: auto;
+}
+.dappr-markdown pre {
+  overflow-x: auto;
+  padding: var(--pico-spacing);
+}
+/* Task lists: no bullet beside the checkbox. */
+.dappr-markdown li:has(> input[type="checkbox"]) {
+  list-style: none;
+  margin-inline-start: -1.25rem;
+}
+.dappr-markdown math[display="block"] {
+  margin: var(--pico-spacing) 0;
+  overflow-x: auto;
+}

@@ -13,11 +13,12 @@ use crate::app::Dapp;
 use dappr_core::charts::ChartKind;
 use dappr_core::communication::signals::Signal;
 use dappr_core::components::chart::Chart;
-use dappr_core::components::drawing::{Canvas, Svg, SvgSource};
+use dappr_core::components::drawing::{Canvas, Svg};
 use dappr_core::components::status::LoadStatus;
 use dappr_core::components::table::{Table, TableSource};
 use dappr_core::data::load::Loadable;
 use dappr_core::framework::traits::Component;
+use dappr_core::framework::traits::TextSource;
 
 /// Data
 impl Dapp {
@@ -130,7 +131,7 @@ impl Dapp {
     /// # let dapp = Dapp::new();
     /// dapp.svg(r#"<svg viewBox="0 0 100 40" width="200"><circle cx="20" cy="20" r="15"/></svg>"#);
     /// ```
-    pub fn svg(&self, source: impl SvgSource) -> Svg {
+    pub fn svg(&self, source: impl TextSource) -> Svg {
         let svg = Svg::new(source);
         self.append(svg.get_element());
         svg

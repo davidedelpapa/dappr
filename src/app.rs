@@ -1185,6 +1185,8 @@ pub fn with_current<R>(f: impl FnOnce(&Dapp) -> R) -> R {
 ///
 /// **Data Display**
 /// - `_html`: injects HTML on the page. If followed by a [`Sanitize`] specifier, it sanitize the HTML before injection.
+/// - `_md`: renders the text as Markdown (see [`Dapp::markdown`]). Works with a template and a signal too.
+/// - `_latex`: renders the text as a LaTeX equation (see [`Dapp::latex`]). Works with a template and a signal too.
 #[macro_export]
 macro_rules! text {
     ($text:expr) => {
@@ -1260,6 +1262,16 @@ macro_rules! text {
     ($text:expr, _subparagraph) => {
         $crate::app::with_current(|dapp_instance| {
             dapp_instance.subparagraph_static($text);
+        });
+    };
+    ($text:expr, _md) => {
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.markdown($text);
+        });
+    };
+    ($text:expr, _latex) => {
+        $crate::app::with_current(|dapp_instance| {
+            dapp_instance.latex($text);
         });
     };
     ($text:expr, _html) => {
@@ -1346,6 +1358,20 @@ macro_rules! text {
     ($template:expr, $signal:expr, _subparagraph) => {
         $crate::app::with_current(|dapp_instance| {
             dapp_instance.subparagraph($template, $signal, None);
+        });
+    };
+    ($template:expr, $signal:expr, _md) => {
+        $crate::app::with_current(|dapp_instance| {
+            let template = ::std::string::String::from($template);
+            dapp_instance
+                .markdown(($signal).map(move |value| template.replace("{}", &value.to_string())));
+        });
+    };
+    ($template:expr, $signal:expr, _latex) => {
+        $crate::app::with_current(|dapp_instance| {
+            let template = ::std::string::String::from($template);
+            dapp_instance
+                .latex(($signal).map(move |value| template.replace("{}", &value.to_string())));
         });
     };
     ($template:expr, $signal:expr, _html) => {

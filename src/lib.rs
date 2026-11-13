@@ -59,6 +59,10 @@ pub mod inputs;
 /// Layout containers: columns, cards, expanders, the sidebar
 pub mod layout;
 
+/// Markdown text and LaTeX equations
+#[cfg(any(feature = "markdown", feature = "latex"))]
+pub mod prose;
+
 /// Values computed from several signals: the `computed!` macro
 pub mod reactive;
 
@@ -78,10 +82,14 @@ pub mod prelude {
     pub use dappr_core::communication::subscription::Subscription; // <-- added
     pub use dappr_core::components::button::*;
     pub use dappr_core::components::chart::Chart;
-    pub use dappr_core::components::drawing::{Canvas, Svg, SvgSource};
+    pub use dappr_core::components::drawing::{Canvas, Svg};
     pub use dappr_core::components::field::{Field, UploadedFile};
     pub use dappr_core::components::html::*;
     pub use dappr_core::components::input::*;
+    #[cfg(feature = "latex")]
+    pub use dappr_core::components::markdown::Latex;
+    #[cfg(feature = "markdown")]
+    pub use dappr_core::components::markdown::Markdown;
     pub use dappr_core::components::status::LoadStatus;
     pub use dappr_core::components::table::{Table, TableSource};
     pub use dappr_core::components::text::*;

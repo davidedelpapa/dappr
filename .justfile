@@ -77,3 +77,7 @@ push-all: push push-core push-macros
 [working-directory: 'examples/chart_crates']
 @example-chart-crates:
     trunk serve --release
+
+[working-directory: 'examples/prose']
+@example-prose:
+    trunk serve --release
