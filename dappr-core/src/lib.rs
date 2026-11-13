@@ -1,3 +1,4 @@
+pub mod charts;
 pub mod communication;
 pub mod components;
 pub mod data;
@@ -7,10 +8,13 @@ pub mod framework;
 #[doc(hidden)]
 #[allow(unused_imports)]
 pub mod prelude {
+    pub use crate::charts::{ChartKind, ChartSpec};
     pub use crate::communication::dispatcher::Dispatcher;
     pub use crate::communication::signals::Signal;
     pub use crate::communication::subscription::Subscription;
     pub use crate::components::button::*;
+    pub use crate::components::chart::Chart;
+    pub use crate::components::drawing::{Canvas, Svg, SvgSource};
     pub use crate::components::field::{Field, UploadedFile};
     pub use crate::components::html::*;
     pub use crate::components::input::*;

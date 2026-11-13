@@ -64,6 +64,35 @@ dapp!(dapp, {
 
 See `just example-data`.
 
+## Charts
+
+`line_chart`, `bar_chart` and `scatter_chart` take a table, the column for the
+x-axis, and the columns to plot. Like `dapp.table`, they follow a
+`Signal<DTable>`:
+
+```rust
+dapp.line_chart(&monthly, "month", &["north", "south", "east"])
+    .title("Units sold per month")
+    .y_label("Units");
+
+// Bars compare totals: add up the orders of each region first.
+let by_region = selected.map(|orders| orders.sum_by("region", &["revenue"]));
+dapp.bar_chart(by_region, "region", &["revenue"]).title("Revenue by region");
+
+dapp.scatter_chart(&selected, "units", &["revenue"]);
+```
+
+Every chart sizes itself to its place on the page, follows the light or dark
+theme, and comes with a legend (for several series), a read-out that follows
+the pointer or the arrow keys, and a "Show data" table. Colours are assigned in
+a fixed order chosen to stay distinguishable for colour-blind readers, which is
+why a line or bar chart draws at most 8 series and a scatter chart 3.
+
+For anything these do not cover, use a plotting crate: `dapp.svg(text)` shows
+SVG output (for example from `poloto`), and `dapp.canvas(w, h)` gives you a
+canvas to draw on (for example with `plotters`). See `just example-charts` and
+`just example-chart-crates`.
+
 ## Inputs
 
 Inputs are typed: each returns a `Field<T>` whose `.value()` is a reactive

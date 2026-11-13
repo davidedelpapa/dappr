@@ -110,3 +110,216 @@ details > button,
 section > button {
   margin-bottom: var(--pico-spacing);
 }
+
+/* ---- Charts ---------------------------------------------------------------
+   Eight series colours, used in this fixed order. The order is what keeps
+   neighbouring colours tellable apart for colour-blind readers, so do not
+   reorder or add to it. The dark values are the same hues, stepped for a
+   dark background. Both sets were checked against Pico's backgrounds
+   (#fff and #13171f). */
+:root {
+  --dappr-series-1: #2a78d6;
+  --dappr-series-2: #eb6834;
+  --dappr-series-3: #1baf7a;
+  --dappr-series-4: #eda100;
+  --dappr-series-5: #e87ba4;
+  --dappr-series-6: #008300;
+  --dappr-series-7: #6250d6;
+  --dappr-series-8: #e34948;
+}
+@media only screen and (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --dappr-series-1: #3987e5;
+    --dappr-series-2: #d95926;
+    --dappr-series-3: #199e70;
+    --dappr-series-4: #c98500;
+    --dappr-series-5: #d55181;
+    --dappr-series-6: #008300;
+    --dappr-series-7: #9085e9;
+    --dappr-series-8: #e66767;
+  }
+}
+[data-theme="dark"] {
+  --dappr-series-1: #3987e5;
+  --dappr-series-2: #d95926;
+  --dappr-series-3: #199e70;
+  --dappr-series-4: #c98500;
+  --dappr-series-5: #d55181;
+  --dappr-series-6: #008300;
+  --dappr-series-7: #9085e9;
+  --dappr-series-8: #e66767;
+}
+.dappr-s0 { --dappr-series: var(--dappr-series-1); }
+.dappr-s1 { --dappr-series: var(--dappr-series-2); }
+.dappr-s2 { --dappr-series: var(--dappr-series-3); }
+.dappr-s3 { --dappr-series: var(--dappr-series-4); }
+.dappr-s4 { --dappr-series: var(--dappr-series-5); }
+.dappr-s5 { --dappr-series: var(--dappr-series-6); }
+.dappr-s6 { --dappr-series: var(--dappr-series-7); }
+.dappr-s7 { --dappr-series: var(--dappr-series-8); }
+
+.dappr-chart {
+  /* What sits behind the marks: used for the ring around dots. */
+  --dappr-chart-surface: var(--pico-background-color);
+  margin: 0 0 var(--pico-spacing);
+}
+article .dappr-chart {
+  --dappr-chart-surface: var(--pico-card-background-color);
+}
+.dappr-chart-title {
+  padding: 0;
+  margin-bottom: calc(var(--pico-spacing) * 0.5);
+  color: var(--pico-color);
+  font-weight: bold;
+}
+.dappr-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin-bottom: calc(var(--pico-spacing) * 0.5);
+  font-size: 0.875rem;
+  color: var(--pico-color);
+}
+.dappr-chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+/* Legend keys mirror the mark: a stroke for lines, a block for bars, a dot. */
+.dappr-chart-swatch-line,
+.dappr-chart-key {
+  width: 14px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--dappr-series);
+}
+.dappr-chart-swatch-bar {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--dappr-series);
+}
+.dappr-chart-swatch-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dappr-series);
+}
+.dappr-chart-plot {
+  position: relative;
+}
+.dappr-chart-plot:focus-visible {
+  outline: 2px solid var(--pico-primary-focus);
+  outline-offset: 2px;
+}
+.dappr-chart-svg {
+  display: block;
+  max-width: 100%;
+  overflow: visible;
+}
+.dappr-chart-svg text {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  fill: var(--pico-muted-color);
+}
+.dappr-chart-svg .dappr-chart-end-labels text,
+.dappr-chart-svg .dappr-chart-axis-label {
+  fill: var(--pico-color);
+}
+.dappr-chart-svg .dappr-chart-message {
+  font-size: 14px;
+}
+/* Grid and axes are hairlines that stay in the background. */
+.dappr-chart-grid line {
+  stroke: var(--pico-muted-border-color);
+  stroke-width: 1;
+}
+.dappr-chart-baseline,
+.dappr-chart-crosshair {
+  stroke: var(--pico-muted-color);
+  stroke-width: 1;
+}
+.dappr-chart-band {
+  fill: var(--pico-muted-border-color);
+  opacity: 0.6;
+}
+.dappr-chart-line {
+  fill: none;
+  stroke: var(--dappr-series);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.dappr-chart-bars path {
+  fill: var(--dappr-series);
+}
+.dappr-chart-dot,
+.dappr-chart-hover {
+  fill: var(--dappr-series);
+  stroke: var(--dappr-chart-surface);
+  stroke-width: 2;
+}
+.dappr-chart-tooltip {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--pico-muted-border-color);
+  border-radius: var(--pico-border-radius);
+  background: var(--pico-card-background-color);
+  box-shadow: var(--pico-card-box-shadow);
+  color: var(--pico-color);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.dappr-chart-tooltip-title {
+  color: var(--pico-muted-color);
+}
+.dappr-chart-tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.dappr-chart-tooltip-row strong {
+  font-variant-numeric: tabular-nums;
+}
+.dappr-chart-tooltip-name {
+  color: var(--pico-muted-color);
+}
+.dappr-chart-note {
+  display: block;
+  color: var(--pico-muted-color);
+}
+.dappr-chart-data {
+  /* Pico colours a <summary> through these two variables. */
+  --pico-accordion-close-summary-color: var(--pico-muted-color);
+  --pico-accordion-open-summary-color: var(--pico-muted-color);
+  margin: calc(var(--pico-spacing) * 0.5) 0 0;
+  border: 0;
+  padding: 0;
+}
+.dappr-chart-data summary {
+  /* Only as wide as its text, so the arrow sits next to it. */
+  width: fit-content;
+  font-size: 0.875rem;
+}
+.dappr-chart-data summary::after {
+  margin-inline-start: 0.5rem;
+}
+.dappr-chart-data[open] summary {
+  margin-bottom: calc(var(--pico-spacing) * 0.5);
+}
+
+/* ---- Raw SVG and canvas ---------------------------------------------------
+   Drawings never spill out of their place on the page. */
+.dappr-svg,
+.dappr-canvas {
+  margin-bottom: var(--pico-spacing);
+}
+.dappr-svg > svg,
+.dappr-canvas > canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}

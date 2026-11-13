@@ -84,3 +84,13 @@ pub fn inject_style(css: &str) {
         .append_child(&style)
         .expect("Failed to add a style to head");
 }
+
+/// Calls `callback` every time `event` fires on `element`, for as long as
+/// the page lives.
+pub fn on(element: &HtmlElement, event: &str, callback: impl FnMut(web_sys::Event) + 'static) {
+    let closure = Closure::<dyn FnMut(web_sys::Event)>::new(callback);
+    element
+        .add_event_listener_with_callback(event, closure.as_ref().unchecked_ref())
+        .unwrap_or_else(|_| panic!("Cannot add the event listener of type: {event}"));
+    closure.forget();
+}

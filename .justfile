@@ -69,3 +69,11 @@ push-all: push push-core push-macros
 [working-directory: 'examples/loading']
 @example-loading:
     trunk serve --release
+
+[working-directory: 'examples/charts']
+@example-charts:
+    trunk serve --release
+
+[working-directory: 'examples/chart_crates']
+@example-chart-crates:
+    trunk serve --release

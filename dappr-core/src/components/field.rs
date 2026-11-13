@@ -263,13 +263,21 @@ impl Field<f64> {
     }
 
     /// A slider from `min` to `max`. The current value is shown next to the
-    /// label. It moves in steps of 1 unless [`step`](Field::step) says otherwise.
+    /// label. Between whole numbers it moves in steps of 1; otherwise it
+    /// moves freely. Use [`step`](Field::step) to choose the step yourself.
     pub fn slider(label: &str, min: f64, max: f64, initial: f64) -> Self {
         let input = input_el("range");
         // Range before value: the browser clamps the value to the range it
         // knows about at the time.
         input.set_min(&min.to_string());
         input.set_max(&max.to_string());
+        // A slider steps by 1 by default, which would silently move a
+        // starting value such as 0.8 (on 0..1) to a whole number. When the
+        // range or the start is not whole, allow any value until `.step()`
+        // says otherwise.
+        if [min, max, initial].iter().any(|v| v.fract() != 0.0) {
+            input.set_step("any");
+        }
         let signal = Self::numeric(&input, initial);
 
         let (el, text) = labelled(label, &input, false);
@@ -292,20 +300,36 @@ impl Field<f64> {
         }
     }
 
+    /// Sets a range attribute, then makes the control and the value agree
+    /// again: the browser snaps a slider to its range and step, so the value
+    /// is re-applied under the new rule, and whatever the control then shows
+    /// becomes the value.
+    fn range_attribute(self, name: &str, value: f64) -> Self {
+        let field = self.control_attribute(name, &value.to_string());
+        let input: &HtmlInputElement = field.control.unchecked_ref();
+        let wanted = field.signal.get();
+        input.set_value_as_number(wanted);
+        let shown = input.value_as_number();
+        if !shown.is_nan() && shown != wanted {
+            field.signal.set(shown);
+        }
+        field
+    }
+
     /// Smallest allowed value. Chainable.
     pub fn min(self, min: f64) -> Self {
-        self.control_attribute("min", &min.to_string())
+        self.range_attribute("min", min)
     }
 
     /// Largest allowed value. Chainable.
     pub fn max(self, max: f64) -> Self {
-        self.control_attribute("max", &max.to_string())
+        self.range_attribute("max", max)
     }
 
     /// Distance between allowed values: `1.0` for whole numbers, `0.01` for
     /// cents. Chainable.
     pub fn step(self, step: f64) -> Self {
-        self.control_attribute("step", &step.to_string())
+        self.range_attribute("step", step)
     }
 }
 

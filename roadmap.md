@@ -82,9 +82,9 @@ Data types
 
 - RawHtml -- OK
 
-- RawSvg *(rustream)*
+- RawSvg -- OK (`dapp.svg`) *(rustream)*
 
-- Canvas *(rustream: `<Canvas>` + `<CanvasElement>`)*
+- Canvas -- OK (`dapp.canvas`, `Canvas::draw_on`) *(rustream: `<Canvas>` + `<CanvasElement>`)*
 
 - Markdown *(rustream: via `pulldown-cmark`)*
 
@@ -99,8 +99,11 @@ Data types
 - Table view of a DTable -- OK *(rustream: `<ViewTable>`, `<ViewCsv>`)*
 
 - Charts
-  - integrate existing Rust chart crates first *(rustream: `poloto` through
-    RawSvg, `plotters` through Canvas)*
+  - built-in line, bar and scatter charts from a DTable -- OK (`line_chart`,
+    `bar_chart`, `scatter_chart`)
+  - integrate existing Rust chart crates -- OK, see `examples/chart_crates`
+    *(rustream: `poloto` through RawSvg, `plotters` through Canvas)*
+  - still to do: area and stacked bars, histograms, a number-line for dates
   - mermaid
 
 - REST APIs (fetch) -- OK for GET (`fetch_table`, `fetch_text`, refetch on a URL signal); POST, headers and authentication are still to do

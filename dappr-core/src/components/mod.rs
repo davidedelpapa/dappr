@@ -2,6 +2,10 @@
 
 /// The button component
 pub mod button;
+/// Line, bar and scatter charts
+pub mod chart;
+/// Raw SVG and canvas drawings
+pub mod drawing;
 /// Typed, labelled inputs (number, slider, checkbox, select, ...)
 pub mod field;
 /// The html component

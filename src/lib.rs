@@ -72,10 +72,13 @@ pub mod prelude {
     pub use crate::layout::Container;
     pub use crate::text;
 
+    pub use dappr_core::charts::{ChartKind, ChartSpec};
     pub use dappr_core::communication::dispatcher::Dispatcher;
     pub use dappr_core::communication::signals::Signal;
     pub use dappr_core::communication::subscription::Subscription; // <-- added
     pub use dappr_core::components::button::*;
+    pub use dappr_core::components::chart::Chart;
+    pub use dappr_core::components::drawing::{Canvas, Svg, SvgSource};
     pub use dappr_core::components::field::{Field, UploadedFile};
     pub use dappr_core::components::html::*;
     pub use dappr_core::components::input::*;
