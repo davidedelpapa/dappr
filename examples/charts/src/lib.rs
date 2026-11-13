@@ -1,8 +1,9 @@
 //! # Charts example
 //!
-//! `line_chart`, `bar_chart` and `scatter_chart` each take a table, the
-//! column for the x-axis, and the columns to plot. Give them a
-//! `Signal<DTable>` and they redraw when the inputs change.
+//! `line_chart`, `area_chart`, `bar_chart` and `scatter_chart` each take a
+//! table, the column for the x-axis, and the columns to plot; `histogram`
+//! takes a table and one column. Give them a `Signal<DTable>` and they
+//! redraw when the inputs change.
 //!
 //! Every chart comes with a legend (when it has several series), a read-out
 //! that follows the pointer or the arrow keys, and a "Show data" table.
@@ -39,6 +40,13 @@ pub fn run() {
             .title("Units sold per month, by region")
             .y_label("Units");
 
+        // The same numbers as parts of a whole: stacked, the bar's height
+        // is the total and the segments are the regions.
+        dapp.bar_chart(&monthly, "month", &["north", "south", "east"])
+            .stacked()
+            .title("Units sold per month, all regions")
+            .height(280);
+
         // ---- Charts that follow an input ----------------------------------
         let mut products = vec![ALL_PRODUCTS.to_string()];
         if let Some(column) = orders.column("product") {
@@ -51,6 +59,14 @@ pub fn run() {
                 product == ALL_PRODUCTS || row.text("product") == Some(product.as_str())
             })
         });
+
+        // Dates on the x-axis become a time axis: orders are placed by
+        // when they happened, however unevenly they are spread.
+        let per_day =
+            selected.map(|orders| orders.sum_by("date", &["revenue"]).sort_by("date", false));
+        dapp.area_chart(per_day, "date", &["revenue"])
+            .title("Revenue per day")
+            .height(260);
 
         let [left, right] = dapp.columns();
 
@@ -66,5 +82,12 @@ pub fn run() {
             .title("Order size and revenue")
             .x_label("Units in the order")
             .height(280);
+
+        // How are order values spread? Most are small, a few are large.
+        dapp.histogram(&selected, "revenue")
+            .title("Orders by revenue")
+            .x_label("Revenue of the order")
+            .y_label("Orders")
+            .height(260);
     });
 }

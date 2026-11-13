@@ -99,11 +99,13 @@ Data types
 - Table view of a DTable -- OK *(rustream: `<ViewTable>`, `<ViewCsv>`)*
 
 - Charts
-  - built-in line, bar and scatter charts from a DTable -- OK (`line_chart`,
-    `bar_chart`, `scatter_chart`)
+  - built-in charts from a DTable -- OK (`line_chart`, `area_chart`,
+    `bar_chart` with `.stacked()`, `scatter_chart`, `histogram`), with a time
+    axis for dates
   - integrate existing Rust chart crates -- OK, see `examples/chart_crates`
     *(rustream: `poloto` through RawSvg, `plotters` through Canvas)*
-  - still to do: area and stacked bars, histograms, a number-line for dates
+  - still to do: horizontal bars for long category names, a metric / stat
+    tile, dates in formats other than ISO
   - mermaid
 
 - REST APIs (fetch) -- OK for GET (`fetch_table`, `fetch_text`, refetch on a URL signal); POST, headers and authentication are still to do

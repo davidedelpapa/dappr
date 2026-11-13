@@ -67,27 +67,43 @@ See `just example-data`.
 
 ## Charts
 
-`line_chart`, `bar_chart` and `scatter_chart` take a table, the column for the
-x-axis, and the columns to plot. Like `dapp.table`, they follow a
-`Signal<DTable>`:
+Each chart takes a table, the column for the x-axis, and the columns to plot.
+Like `dapp.table`, they follow a `Signal<DTable>`:
 
 ```rust
 dapp.line_chart(&monthly, "month", &["north", "south", "east"])
     .title("Units sold per month")
     .y_label("Units");
 
+// The same numbers as parts of a whole.
+dapp.bar_chart(&monthly, "month", &["north", "south", "east"]).stacked();
+
+// Dates on x (2026-03-05, 2026-03, 2026-03-05 14:30) get a time axis.
+dapp.area_chart(&per_day, "date", &["revenue"]);
+
 // Bars compare totals: add up the orders of each region first.
 let by_region = selected.map(|orders| orders.sum_by("region", &["revenue"]));
-dapp.bar_chart(by_region, "region", &["revenue"]).title("Revenue by region");
+dapp.bar_chart(by_region, "region", &["revenue"]);
 
 dapp.scatter_chart(&selected, "units", &["revenue"]);
+
+// How one column's values are spread.
+dapp.histogram(&selected, "revenue").bins(10);
 ```
+
+| Chart | Use it for |
+|---|---|
+| `line_chart` | change along an ordered x: time, steps |
+| `area_chart` | the same, for an amount; best with one or two columns |
+| `bar_chart` | comparing categories; `.stacked()` for parts of a whole |
+| `scatter_chart` | how two numeric columns relate |
+| `histogram` | how the values of one column are spread |
 
 Every chart sizes itself to its place on the page, follows the light or dark
 theme, and comes with a legend (for several series), a read-out that follows
 the pointer or the arrow keys, and a "Show data" table. Colours are assigned in
 a fixed order chosen to stay distinguishable for colour-blind readers, which is
-why a line or bar chart draws at most 8 series and a scatter chart 3.
+why a line, area or bar chart draws at most 8 series and a scatter chart 3.
 
 For anything these do not cover, use a plotting crate: `dapp.svg(text)` shows
 SVG output (for example from `poloto`), and `dapp.canvas(w, h)` gives you a

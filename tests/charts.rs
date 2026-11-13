@@ -288,6 +288,145 @@ fn test_too_many_series_is_reported() {
         .starts_with("Showing the first 3 of 4 series"));
 }
 
+// ---- More kinds of chart -----------------------------------------------------
+
+#[wasm_bindgen_test]
+async fn test_area_chart_has_a_fill_and_a_line_readout() {
+    let dapp = Dapp::new();
+    let chart = dapp.area_chart(&sales(), "month", &["north"]);
+    sleep(60).await;
+    let el = chart.get_element();
+    assert_eq!(count(el, "svg .dappr-chart-area"), 1);
+    assert_eq!(count(el, "svg .dappr-chart-line"), 1);
+    // The fill is a light wash of the series colour.
+    let style = web_sys::window()
+        .unwrap()
+        .get_computed_style(&one(el, "svg .dappr-chart-area"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        style.get_property_value("fill").unwrap(),
+        "rgb(42, 120, 214)"
+    );
+    assert!(
+        style
+            .get_property_value("opacity")
+            .unwrap()
+            .parse::<f64>()
+            .unwrap()
+            < 0.2
+    );
+
+    pointer_to(&chart, 0.9, 0.5);
+    assert_eq!(tooltip(&chart).unwrap(), vec!["Apr", "200 north"]);
+    assert_eq!(
+        one(el, ".dappr-chart-crosshair")
+            .get_attribute("visibility")
+            .unwrap(),
+        "visible"
+    );
+}
+
+#[wasm_bindgen_test]
+async fn test_dates_get_a_time_axis() {
+    let dapp = Dapp::new();
+    let data = DTable::from_csv("day,v\n2026-01-01,1\n2026-01-02,2\n2026-01-11,3").unwrap();
+    let chart = dapp.line_chart(&data, "day", &["v"]);
+    sleep(60).await;
+    let el = chart.get_element();
+    // Ticks are round dates, not the three rows' own labels.
+    let ticks = texts(el, "svg .dappr-chart-ticks text");
+    assert!(ticks.iter().any(|t| t.starts_with("Jan ")), "{ticks:?}");
+    assert!(!ticks.contains(&"2026-01-11".to_string()));
+    // The read-out still shows the date as written.
+    pointer_to(&chart, 0.95, 0.5);
+    assert_eq!(tooltip(&chart).unwrap(), vec!["2026-01-11", "3 v"]);
+}
+
+#[wasm_bindgen_test]
+async fn test_stacked_bars_stack_and_list_every_series() {
+    let dapp = Dapp::new();
+    let grouped = dapp.bar_chart(&sales(), "month", &["north", "south"]);
+    let stacked = dapp
+        .bar_chart(&sales(), "month", &["north", "south"])
+        .stacked();
+    sleep(60).await;
+
+    let first_two = |chart: &Chart| {
+        let bars = chart
+            .get_element()
+            .query_selector_all("svg .dappr-chart-bars path")
+            .unwrap();
+        // The first bar of each series: both belong to January.
+        let rect = |i: u32| {
+            bars.item(i)
+                .unwrap()
+                .unchecked_into::<Element>()
+                .get_bounding_client_rect()
+        };
+        (rect(0), rect(4))
+    };
+    let (north, south) = first_two(&grouped);
+    assert!(
+        south.left() > north.right(),
+        "grouped bars sit side by side"
+    );
+    let (north, south) = first_two(&stacked);
+    assert!(
+        (south.left() - north.left()).abs() < 0.5,
+        "stacked bars share a column"
+    );
+    assert!(
+        south.bottom() <= north.top(),
+        "the second series sits on the first"
+    );
+
+    assert_eq!(
+        texts(stacked.get_element(), ".dappr-chart-legend-item"),
+        vec!["north", "south"]
+    );
+    pointer_to(&stacked, 0.2, 0.5);
+    assert_eq!(
+        tooltip(&stacked).unwrap(),
+        vec!["Jan", "120 north", "80 south"]
+    );
+}
+
+#[wasm_bindgen_test]
+async fn test_histogram_counts_and_follows_the_data() {
+    let dapp = Dapp::new();
+    let data = DTable::from_csv("minutes\n1\n2\n2\n3\n11\n12\n13\n14\n15\n28\n30").unwrap();
+    let source = Signal::new(data.clone());
+    let chart = dapp.histogram(&source, "minutes").bins(3);
+    sleep(60).await;
+    let el = chart.get_element();
+
+    assert_eq!(count(el, "svg .dappr-chart-bars path"), 3);
+    assert!(one(el, ".dappr-chart-legend").hidden());
+    // The table view lists the ranges and their counts.
+    assert_eq!(texts(el, "details thead th"), vec!["from", "to", "rows"]);
+    assert_eq!(
+        texts(el, "details tbody td"),
+        vec!["0", "10", "4", "10", "20", "5", "20", "30", "2"]
+    );
+    pointer_to(&chart, 0.5, 0.5);
+    assert_eq!(tooltip(&chart).unwrap(), vec!["10 \u{2013} 20", "5 rows"]);
+
+    // Fewer rows: the bars and the table follow.
+    source.set(data.filter(|row| row.number("minutes") < Some(10.0)));
+    assert_eq!(
+        texts(el, "details tbody td:last-child")
+            .iter()
+            .map(|t| t.parse::<f64>().unwrap())
+            .sum::<f64>(),
+        4.0
+    );
+
+    // Asking for more bars redraws with more.
+    let finer = dapp.histogram(&data, "minutes").bins(6);
+    assert!(count(finer.get_element(), "details tbody tr") > 3);
+}
+
 // ---- Bring your own drawing -------------------------------------------------
 
 #[wasm_bindgen_test]

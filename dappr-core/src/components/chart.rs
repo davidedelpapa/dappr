@@ -1,4 +1,4 @@
-//! ## Chart: a line, bar or scatter chart of a [`DTable`]
+//! ## Chart: a line, area, bar or scatter chart, or a histogram, of a [`DTable`]
 //!
 //! Like [`Table`](crate::components::table::Table), a chart takes a
 //! `DTable` for a fixed chart, or a `Signal<DTable>` for one that redraws
@@ -11,7 +11,7 @@
 //!   chart has keyboard focus;
 //! - a **"Show data" table** with the plotted values, so nothing can only
 //!   be read by hovering or by telling colours apart.
-use crate::charts::{format_value, render, ChartKind, ChartSpec, Layout};
+use crate::charts::{format_value, histogram_table, render, ChartKind, ChartSpec, Layout};
 use crate::communication::signals::Signal;
 use crate::components::table::{Table, TableSource};
 use crate::data::table::DTable;
@@ -48,6 +48,8 @@ struct Parts {
     drawing: HtmlElement,
     tooltip: HtmlElement,
     note: HtmlElement,
+    /// What the "Show data" table shows.
+    table: Signal<DTable>,
 }
 
 /// A chart on the page.
@@ -105,12 +107,9 @@ impl Chart {
         // The table view: the same columns, as numbers.
         let details = child(&el, "details", "dappr-chart-data");
         child(&details, "summary", "").set_text_content(Some("Show data"));
-        let mut columns: Vec<String> = vec![x.to_string()];
-        columns.extend(spec.drawn_series().iter().cloned());
-        let table = Table::new(data.map(move |table| {
-            let names: Vec<&str> = columns.iter().map(String::as_str).collect();
-            table.select(&names)
-        }));
+        // Filled in by `redraw`, which knows what was plotted.
+        let table_data = Signal::new(DTable::new());
+        let table = Table::new(&table_data);
         details
             .append_child(table.get_element())
             .expect("Failed to build the chart");
@@ -122,6 +121,7 @@ impl Chart {
             drawing,
             tooltip,
             note,
+            table: table_data,
         };
         let state = Rc::new(RefCell::new(State {
             spec,
@@ -247,6 +247,19 @@ impl Chart {
     /// follows the chart's place on the page. Chainable.
     pub fn height(self, height: u32) -> Self {
         self.update(|state| state.spec.height = f64::from(height))
+    }
+
+    /// Bar charts: stacks the series on top of each other instead of
+    /// placing them side by side. Use it when the series are parts of a
+    /// whole and the total matters. Chainable.
+    pub fn stacked(self) -> Self {
+        self.update(|state| state.spec.stacked = true)
+    }
+
+    /// Histograms: roughly how many bars to draw. The ranges are rounded to
+    /// tidy numbers, so the exact count can differ. Chainable.
+    pub fn bins(self, bins: usize) -> Self {
+        self.update(|state| state.spec.bins = bins)
     }
 
     /// The data being charted. Set it to change what the chart shows.
@@ -420,7 +433,7 @@ fn select(state: &Rc<RefCell<State>>, parts: &Parts, target: Option<usize>) {
         }
         kind => {
             let row = &layout.rows[index];
-            if kind == ChartKind::Line {
+            if matches!(kind, ChartKind::Line | ChartKind::Area) {
                 if let Some(crosshair) = find(".dappr-chart-crosshair") {
                     set(&crosshair, "x1", &format!("{:.1}", row.x));
                     set(&crosshair, "x2", &format!("{:.1}", row.x));
@@ -484,6 +497,19 @@ fn redraw(state: &Rc<RefCell<State>>, parts: &Parts) {
         parts.note.set_hidden(plot.note.is_none());
         parts.note.set_text_content(plot.note.as_deref());
 
+        // The table view: what was plotted, as numbers.
+        let table = match state.spec.kind {
+            ChartKind::Histogram => {
+                histogram_table(&state.data, &state.spec.x, state.spec.bins).unwrap_or_default()
+            }
+            _ => {
+                let mut columns = vec![state.spec.x.as_str()];
+                columns.extend(state.spec.drawn_series().iter().map(String::as_str));
+                state.data.select(&columns)
+            }
+        };
+        parts.table.set(table);
+
         // A legend names the series when there are several. With one, the
         // title already says what is plotted.
         parts.legend.set_text_content(None);
@@ -492,8 +518,8 @@ fn redraw(state: &Rc<RefCell<State>>, parts: &Parts) {
         if series.len() >= 2 {
             let swatch = match state.spec.kind {
                 ChartKind::Line => "dappr-chart-swatch-line",
-                ChartKind::Bar => "dappr-chart-swatch-bar",
                 ChartKind::Scatter => "dappr-chart-swatch-dot",
+                _ => "dappr-chart-swatch-bar",
             };
             for (index, name) in series.iter().enumerate() {
                 let item = child(&parts.legend, "span", "dappr-chart-legend-item");

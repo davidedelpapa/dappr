@@ -1,4 +1,4 @@
-//! Charts drawn from a [`DTable`]: line, bar and scatter.
+//! Charts drawn from a [`DTable`]: line, area, bar, scatter and histogram.
 //!
 //! This module is the drawing half: [`render`] turns a [`ChartSpec`] and a
 //! table into an SVG string plus a [`Layout`] describing where every value
@@ -32,10 +32,16 @@ const MAX_LABEL_CHARS: usize = 18;
 pub enum ChartKind {
     /// Lines, for change along an ordered x (time, steps).
     Line,
+    /// Lines with the space down to zero lightly filled, for an amount that
+    /// changes along an ordered x. Best with one or two series.
+    Area,
     /// Vertical bars, for comparing amounts across categories.
     Bar,
     /// Dots, for the relationship between two numeric columns.
     Scatter,
+    /// Bars counting how many rows fall in each range of one numeric
+    /// column, to see how its values are spread.
+    Histogram,
 }
 
 /// What to draw: which columns, and how.
@@ -53,6 +59,13 @@ pub struct ChartSpec {
     pub y_label: String,
     /// Height of the drawing in pixels, axis labels included.
     pub height: f64,
+    /// Bar charts: stack the series on top of each other instead of placing
+    /// them side by side.
+    pub stacked: bool,
+    /// Histograms: roughly how many bars to aim for; 0 picks a number from
+    /// the amount of data. The ranges are rounded to tidy numbers, so the
+    /// exact count can differ.
+    pub bins: usize,
 }
 
 impl ChartSpec {
@@ -65,6 +78,8 @@ impl ChartSpec {
             x_label: String::new(),
             y_label: String::new(),
             height: 320.0,
+            stacked: false,
+            bins: 0,
         }
     }
 
@@ -73,6 +88,8 @@ impl ChartSpec {
     pub fn drawn_series(&self) -> &[String] {
         let limit = match self.kind {
             ChartKind::Scatter => MAX_SCATTER_SERIES,
+            // A histogram counts one column: it has no y columns.
+            ChartKind::Histogram => 0,
             _ => MAX_SERIES,
         };
         &self.y[..self.y.len().min(limit)]
@@ -269,6 +286,281 @@ impl Scale {
     }
 }
 
+// ---- Dates ------------------------------------------------------------------
+
+const MONTHS: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+/// Days from 1970-01-01 to the given date (proleptic Gregorian calendar).
+fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = y.div_euclid(400);
+    let year_of_era = y.rem_euclid(400);
+    let month_index = (i64::from(month) + 9) % 12;
+    let day_of_year = (153 * month_index + 2) / 5 + i64::from(day) - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    era * 146_097 + day_of_era - 719_468
+}
+
+/// The date that is `days` after 1970-01-01, as (year, month, day).
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let day_of_era = z.rem_euclid(146_097);
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_index = (5 * day_of_year + 2) / 153;
+    let day = (day_of_year - (153 * month_index + 2) / 5 + 1) as u32;
+    let month = if month_index < 10 {
+        month_index + 3
+    } else {
+        month_index - 9
+    } as u32;
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    (year, month, day)
+}
+
+fn days_in_month(year: i64, month: u32) -> u32 {
+    (days_from_civil(year + i64::from(month == 12), month % 12 + 1, 1)
+        - days_from_civil(year, month, 1)) as u32
+}
+
+/// Reads an ISO-style date or date-time as days since 1970-01-01 (with the
+/// time of day as a fraction). Understood: `2026-03-05`, `2026/03/05`,
+/// `2026-03` (the first of the month), and either followed by `T` or a
+/// space and `14:30` or `14:30:15`. Anything else is not a date.
+pub fn parse_date(text: &str) -> Option<f64> {
+    let text = text.trim().trim_end_matches('Z');
+    let (date, time) = match text.split_once(['T', ' ']) {
+        Some((date, time)) => (date, Some(time)),
+        None => (text, None),
+    };
+    let parts: Vec<&str> = date.split(['-', '/']).collect();
+    let digits = |part: &str, len: usize| -> Option<u32> {
+        (part.len() == len && part.bytes().all(|b| b.is_ascii_digit()))
+            .then(|| part.parse().ok())
+            .flatten()
+    };
+    let (year, month, day) = match parts.as_slice() {
+        [y, m, d] => (digits(y, 4)?, digits(m, 2)?, digits(d, 2)?),
+        [y, m] if time.is_none() => (digits(y, 4)?, digits(m, 2)?, 1),
+        _ => return None,
+    };
+    let year = i64::from(year);
+    if !(1..=12).contains(&month) || day < 1 || day > days_in_month(year, month) {
+        return None;
+    }
+    let mut days = days_from_civil(year, month, day) as f64;
+    if let Some(time) = time {
+        let time: Vec<&str> = time.trim().split(':').collect();
+        let (hours, minutes, seconds) = match time.as_slice() {
+            [h, m] => (digits(h, 2)?, digits(m, 2)?, 0.0),
+            [h, m, s] => (digits(h, 2)?, digits(m, 2)?, s.parse::<f64>().ok()?),
+            _ => return None,
+        };
+        if hours > 23 || minutes > 59 || !(0.0..60.0).contains(&seconds) {
+            return None;
+        }
+        days += (f64::from(hours) * 3600.0 + f64::from(minutes) * 60.0 + seconds) / 86_400.0;
+    }
+    Some(days)
+}
+
+/// Tick positions (in days) and labels for a time axis from `min` to `max`,
+/// aiming for about `target` ticks on round moments: whole hours, days,
+/// the first of a month, the first of a year.
+fn time_ticks(min: f64, max: f64, target: usize) -> Vec<(f64, String)> {
+    #[derive(Clone, Copy)]
+    enum Unit {
+        Hours(i64),
+        Days(i64),
+        Months(i64),
+        Years(i64),
+    }
+    let candidates = [
+        Unit::Hours(1),
+        Unit::Hours(3),
+        Unit::Hours(6),
+        Unit::Hours(12),
+        Unit::Days(1),
+        Unit::Days(2),
+        Unit::Days(7),
+        Unit::Days(14),
+        Unit::Months(1),
+        Unit::Months(3),
+        Unit::Months(6),
+        Unit::Years(1),
+        Unit::Years(2),
+        Unit::Years(5),
+        Unit::Years(10),
+        Unit::Years(20),
+        Unit::Years(50),
+        Unit::Years(100),
+        Unit::Years(500),
+        Unit::Years(1000),
+    ];
+    let length = |unit: Unit| match unit {
+        Unit::Hours(n) => n as f64 / 24.0,
+        Unit::Days(n) => n as f64,
+        Unit::Months(n) => n as f64 * 30.44,
+        Unit::Years(n) => n as f64 * 365.25,
+    };
+    let span = max - min;
+    let target = target.max(2) as f64;
+    let unit = candidates
+        .into_iter()
+        .find(|unit| span / length(*unit) <= target)
+        .unwrap_or(Unit::Years(1000));
+
+    let day_label = |day: i64| {
+        let (_, month, day) = civil_from_days(day);
+        format!("{} {day}", MONTHS[month as usize - 1])
+    };
+    let mut ticks = Vec::new();
+    match unit {
+        Unit::Hours(n) => {
+            let step = n as f64 / 24.0;
+            let mut tick = (min / step).ceil() * step;
+            while tick <= max + 1e-9 {
+                let hour = ((tick - tick.floor()) * 24.0).round() as i64 % 24;
+                // Midnight is labelled with the day it starts.
+                let label = if hour == 0 {
+                    day_label(tick.round() as i64)
+                } else {
+                    format!("{hour:02}:00")
+                };
+                ticks.push((tick, label));
+                tick += step;
+            }
+        }
+        Unit::Days(n) => {
+            let mut day = min.ceil() as i64;
+            while day as f64 <= max + 1e-9 {
+                ticks.push((day as f64, day_label(day)));
+                day += n;
+            }
+        }
+        Unit::Months(n) => {
+            let (mut year, month, _) = civil_from_days(min.floor() as i64);
+            // 0-based month, moved back to a multiple of the step.
+            let mut month = (i64::from(month) - 1) / n * n;
+            loop {
+                let tick = days_from_civil(year, month as u32 + 1, 1) as f64;
+                if tick > max + 1e-9 {
+                    break;
+                }
+                if tick >= min - 1e-9 {
+                    // The year is shown on the first tick and each January.
+                    let label = if month == 0 || ticks.is_empty() {
+                        format!("{} {year}", MONTHS[month as usize])
+                    } else {
+                        MONTHS[month as usize].to_string()
+                    };
+                    ticks.push((tick, label));
+                }
+                month += n;
+                if month >= 12 {
+                    month -= 12;
+                    year += 1;
+                }
+            }
+        }
+        Unit::Years(n) => {
+            let (first_year, _, _) = civil_from_days(min.floor() as i64);
+            let mut year = first_year.div_euclid(n) * n;
+            loop {
+                let tick = days_from_civil(year, 1, 1) as f64;
+                if tick > max + 1e-9 {
+                    break;
+                }
+                if tick >= min - 1e-9 {
+                    ticks.push((tick, year.to_string()));
+                }
+                year += n;
+            }
+        }
+    }
+    ticks
+}
+
+// ---- Histogram bins ---------------------------------------------------------
+
+/// The ranges a histogram counts in: `counts[i]` rows fall in
+/// `first + i * step .. first + (i + 1) * step`.
+struct Bins {
+    first: f64,
+    step: f64,
+    counts: Vec<usize>,
+}
+
+fn bins_of(values: &[f64], wanted: usize) -> Bins {
+    let min = values.iter().copied().fold(f64::INFINITY, f64::min);
+    let max = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    // With no number given: more bars for more data (Sturges' rule), within
+    // sensible limits.
+    let target = if wanted > 0 {
+        wanted
+    } else {
+        ((values.len() as f64).log2().ceil() as usize + 1).clamp(5, 30)
+    };
+    // Tidy ranges: a width of 1, 2, 2.5 or 5 times a power of ten -- the
+    // one that gives a number of bars closest to the number wanted.
+    let (min, max) = if min == max {
+        let pad = if min == 0.0 { 1.0 } else { min.abs() * 0.1 };
+        (min - pad, max + pad)
+    } else {
+        (min, max)
+    };
+    let magnitude = 10f64.powf(((max - min) / target as f64).log10().floor());
+    let (first, step, count) = [0.5, 1.0, 2.0, 2.5, 5.0, 10.0]
+        .iter()
+        .map(|multiple| {
+            let step = multiple * magnitude;
+            let first = (min / step).floor() * step;
+            // The last range includes its upper edge, so a largest value
+            // sitting exactly on an edge does not need a range of its own.
+            let count = ((((max - first) / step) - 1e-9).ceil() as usize).max(1);
+            (first, step, count)
+        })
+        .min_by_key(|(_, _, count)| count.abs_diff(target))
+        .expect("there are candidate widths");
+    let mut counts = vec![0; count];
+    for value in values {
+        // The largest value belongs to the last range, not one past it.
+        let index = (((value - first) / step).floor() as usize).min(count - 1);
+        counts[index] += 1;
+    }
+    Bins {
+        first,
+        step,
+        counts,
+    }
+}
+
+/// The table a histogram of `column` draws: one row per range, with columns
+/// `from`, `to` and `rows` (how many rows of `data` fall in the range).
+/// `None` if the column is missing or holds no numbers.
+pub fn histogram_table(data: &DTable, column: &str, bins: usize) -> Option<DTable> {
+    let values: Vec<f64> = data
+        .column(column)?
+        .numbers()
+        .into_iter()
+        .filter(|v| v.is_finite())
+        .collect();
+    if values.is_empty() {
+        return None;
+    }
+    let bins = bins_of(&values, bins);
+    let mut table = DTable::with_columns(&["from", "to", "rows"]);
+    for (index, count) in bins.counts.iter().enumerate() {
+        let from = bins.first + bins.step * index as f64;
+        table.push_row([from, from + bins.step, *count as f64]);
+    }
+    Some(table)
+}
+
 // ---- Drawing ----------------------------------------------------------------
 
 fn message(width: f64, height: f64, text: &str) -> Plot {
@@ -287,21 +579,27 @@ fn message(width: f64, height: f64, text: &str) -> Plot {
     }
 }
 
-/// A bar from the baseline to its value, with the value end rounded and
-/// the baseline end square.
-fn bar_path(x: f64, width: f64, baseline: f64, y: f64) -> String {
-    let height = (baseline - y).abs();
-    let r = 4f64.min(width / 2.0).min(height);
-    // `d` is +1 when the bar goes up from the baseline, -1 when down.
-    let d = if y <= baseline { 1.0 } else { -1.0 };
+/// A bar segment from `from` to `to` (both y positions). With `round_end`,
+/// the `to` end is rounded: that is the end showing the value. The `from`
+/// end -- the baseline, or the segment below in a stack -- stays square.
+fn bar_path(x: f64, width: f64, from: f64, to: f64, round_end: bool) -> String {
+    let height = (from - to).abs();
+    let r = if round_end {
+        4f64.min(width / 2.0).min(height)
+    } else {
+        0.0
+    };
+    // `d` is +1 when the bar goes up from `from`, -1 when down.
+    let d = if to <= from { 1.0 } else { -1.0 };
     format!(
         "M{x0:.1},{b:.1}L{x0:.1},{yr:.1}Q{x0:.1},{y:.1} {xr0:.1},{y:.1}L{xr1:.1},{y:.1}Q{x1:.1},{y:.1} {x1:.1},{yr:.1}L{x1:.1},{b:.1}Z",
         x0 = x,
         x1 = x + width,
         xr0 = x + r,
         xr1 = x + width - r,
-        b = baseline,
-        yr = y + d * r,
+        b = from,
+        y = to,
+        yr = to + d * r,
     )
 }
 
@@ -309,20 +607,47 @@ fn bar_path(x: f64, width: f64, baseline: f64, y: f64) -> String {
 pub fn render(spec: &ChartSpec, data: &DTable, width: f64) -> Plot {
     let width = width.max(160.0);
     let height = spec.height.max(120.0);
+    let kind = spec.kind;
 
     let Some(x_column) = data.column(&spec.x) else {
         return message(width, height, &format!("No column named \"{}\"", spec.x));
     };
-    let drawn = spec.drawn_series();
+
+    // ---- What goes on each axis ----
+    // A histogram is drawn from its counts; everything else from the table.
+    let histogram = if kind == ChartKind::Histogram {
+        let values: Vec<f64> = x_column
+            .numbers()
+            .into_iter()
+            .filter(|v| v.is_finite())
+            .collect();
+        if values.is_empty() {
+            return message(
+                width,
+                height,
+                &format!("A histogram needs numbers in \"{}\"", spec.x),
+            );
+        }
+        Some(bins_of(&values, spec.bins))
+    } else {
+        None
+    };
+
+    let drawn: Vec<String> = match &histogram {
+        Some(_) => vec!["rows".to_string()],
+        None => spec.drawn_series().to_vec(),
+    };
     if drawn.is_empty() {
         return message(width, height, "No columns to plot");
     }
-    for name in drawn {
-        if data.column(name).is_none() {
-            return message(width, height, &format!("No column named \"{name}\""));
+    if histogram.is_none() {
+        for name in &drawn {
+            if data.column(name).is_none() {
+                return message(width, height, &format!("No column named \"{name}\""));
+            }
         }
     }
-    let mut note = (drawn.len() < spec.y.len()).then(|| {
+    let mut note = (histogram.is_none() && drawn.len() < spec.y.len()).then(|| {
         format!(
             "Showing the first {} of {} series",
             drawn.len(),
@@ -330,52 +655,121 @@ pub fn render(spec: &ChartSpec, data: &DTable, width: f64) -> Plot {
         )
     });
 
+    // x as numbers, when it can be placed on a number line: numbers as they
+    // are, dates as days. (A bar chart never does this: its x is categories.)
     let numeric_x = x_column.is_numeric();
-    if spec.kind == ChartKind::Scatter && !numeric_x {
+    let cells = x_column.cells();
+    let date_x = !numeric_x
+        && cells.iter().any(|cell| !cell.is_null())
+        && cells.iter().all(|cell| match cell {
+            Cell::Null => true,
+            Cell::Text(text) => parse_date(text).is_some(),
+            _ => false,
+        });
+    if kind == ChartKind::Scatter && !numeric_x && !date_x {
         return message(
             width,
             height,
-            &format!("A scatter chart needs numbers in \"{}\"", spec.x),
+            &format!("A scatter chart needs numbers or dates in \"{}\"", spec.x),
         );
     }
-    // A line chart follows numeric x values; with text (dates, names) it
-    // spaces the rows evenly, like a bar chart.
-    let linear_x = numeric_x && spec.kind != ChartKind::Bar;
+    let linear_x = histogram.is_some() || ((numeric_x || date_x) && kind != ChartKind::Bar);
+    let x_number = |index: usize| -> Option<f64> {
+        match &cells[index] {
+            Cell::Number(number) => Some(*number).filter(|n| n.is_finite()),
+            Cell::Text(text) if date_x => parse_date(text),
+            _ => None,
+        }
+    };
 
-    // The rows to draw: all of them, except those without an x value when x
-    // is a number line.
-    let row_indices: Vec<usize> = (0..data.n_rows())
-        .filter(|&i| !linear_x || x_column.cells()[i].as_f64().is_some())
-        .collect();
+    // The rows to draw: one per range for a histogram; otherwise the
+    // table's rows, minus those without an x value when x is a number line.
+    let row_indices: Vec<usize> = match &histogram {
+        Some(bins) => (0..bins.counts.len()).collect(),
+        None => (0..data.n_rows())
+            .filter(|&i| !linear_x || x_number(i).is_some())
+            .collect(),
+    };
     if row_indices.is_empty() {
         return message(width, height, "No data to plot");
     }
 
     // Values per series, aligned with `row_indices`.
-    let values: Vec<Vec<Option<f64>>> = drawn
-        .iter()
-        .map(|name| {
-            let cells = data.column(name).map(|c| c.cells()).unwrap_or(&[]);
-            row_indices
-                .iter()
-                .map(|&i| cells[i].as_f64().filter(|v| v.is_finite()))
-                .collect()
-        })
-        .collect();
+    let values: Vec<Vec<Option<f64>>> = match &histogram {
+        Some(bins) => vec![bins.counts.iter().map(|c| Some(*c as f64)).collect()],
+        None => drawn
+            .iter()
+            .map(|name| {
+                let cells = data.column(name).map(|c| c.cells()).unwrap_or(&[]);
+                row_indices
+                    .iter()
+                    .map(|&i| cells[i].as_f64().filter(|v| v.is_finite()))
+                    .collect()
+            })
+            .collect(),
+    };
     let all_values: Vec<f64> = values.iter().flatten().flatten().copied().collect();
     if all_values.is_empty() {
         return message(width, height, "No numbers to plot");
     }
 
+    // Stacked bars: where each segment starts and ends, in data units.
+    // Positive values pile upwards from zero, negative ones downwards.
+    let stacked = kind == ChartKind::Bar && spec.stacked && drawn.len() > 1;
+    let n = row_indices.len();
+    let stacks: Vec<Vec<Option<(f64, f64)>>> = if stacked {
+        let mut up = vec![0.0; n];
+        let mut down = vec![0.0; n];
+        values
+            .iter()
+            .map(|series| {
+                series
+                    .iter()
+                    .enumerate()
+                    .map(|(row, value)| {
+                        value.map(|value| {
+                            let base = if value >= 0.0 {
+                                &mut up[row]
+                            } else {
+                                &mut down[row]
+                            };
+                            let from = *base;
+                            *base += value;
+                            (from, *base)
+                        })
+                    })
+                    .collect()
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
     // ---- y scale ----
-    let mut y_min = all_values.iter().copied().fold(f64::INFINITY, f64::min);
-    let mut y_max = all_values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-    if spec.kind == ChartKind::Bar {
-        // Bars are read by their length, so they must start at zero.
+    let extent: Vec<f64> = if stacked {
+        stacks
+            .iter()
+            .flatten()
+            .flatten()
+            .map(|(_, to)| *to)
+            .collect()
+    } else {
+        all_values
+    };
+    let mut y_min = extent.iter().copied().fold(f64::INFINITY, f64::min);
+    let mut y_max = extent.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    if kind != ChartKind::Line && kind != ChartKind::Scatter {
+        // Bars and areas are read by how far they reach from zero, so zero
+        // must be on the axis.
         y_min = y_min.min(0.0);
         y_max = y_max.max(0.0);
     }
-    let (y_first, y_step, y_count) = nice_ticks(y_min, y_max, 5);
+    let (mut y_first, mut y_step, mut y_count) = nice_ticks(y_min, y_max, 5);
+    if histogram.is_some() && y_step < 1.0 {
+        // Counts are whole numbers: no ticks at 0.5 rows.
+        (y_first, y_step) = (0.0, 1.0);
+        y_count = y_max.ceil() as usize + 1;
+    }
     let y_last = y_first + y_step * (y_count - 1) as f64;
     let compact = y_first.abs().max(y_last.abs()) >= 10_000.0;
     let y_ticks: Vec<(f64, String)> = (0..y_count)
@@ -396,7 +790,7 @@ pub fn render(spec: &ChartSpec, data: &DTable, width: f64) -> Plot {
 
     // Line charts name each line at its right end when there are few
     // enough lines for that to stay readable.
-    let end_labels = spec.kind == ChartKind::Line && (2..=4).contains(&drawn.len());
+    let end_labels = kind == ChartKind::Line && (2..=4).contains(&drawn.len());
     let end_label_width = if end_labels {
         drawn
             .iter()
@@ -420,32 +814,64 @@ pub fn render(spec: &ChartSpec, data: &DTable, width: f64) -> Plot {
     };
 
     // ---- x positions ----
-    let n = row_indices.len();
-    let band = (right - left) / n as f64;
-    let x_values: Vec<f64> = row_indices
-        .iter()
-        .map(|&i| x_column.cells()[i].as_f64().unwrap_or(0.0))
-        .collect();
-    let (x_scale, x_ticks) = if linear_x {
-        let x_min = x_values.iter().copied().fold(f64::INFINITY, f64::min);
-        let x_max = x_values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-        let pad = if spec.kind == ChartKind::Scatter {
-            8.0
-        } else {
-            4.0
+    let mut band = (right - left) / n as f64;
+    let x_values: Vec<f64> = match &histogram {
+        // The middle of each range.
+        Some(bins) => (0..n)
+            .map(|i| bins.first + bins.step * (i as f64 + 0.5))
+            .collect(),
+        None => row_indices
+            .iter()
+            .map(|&i| x_number(i).unwrap_or(0.0))
+            .collect(),
+    };
+    let (x_scale, linear_ticks) = if linear_x {
+        let (x_min, x_max) = match &histogram {
+            Some(bins) => (bins.first, bins.first + bins.step * n as f64),
+            None => (
+                x_values.iter().copied().fold(f64::INFINITY, f64::min),
+                x_values.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+            ),
+        };
+        let pad = match kind {
+            ChartKind::Scatter => 8.0,
+            ChartKind::Histogram => 0.0,
+            _ => 4.0,
         };
         let scale = Scale {
             domain: (x_min, x_max),
             range: (left + pad, right - pad),
         };
         let target = (((right - left) / 90.0).floor() as usize).clamp(2, 10);
-        let (first, step, count) = nice_ticks(x_min, x_max, target);
-        let compact_x = x_min.abs().max(x_max.abs()) >= 1_000_000.0;
-        let ticks: Vec<(f64, String)> = (0..count)
-            .map(|i| first + step * i as f64)
-            .filter(|v| *v >= x_min - step * 1e-9 && *v <= x_max + step * 1e-9)
-            .map(|v| (scale.at(v), format_tick(v, step, compact_x)))
-            .collect();
+        let ticks: Vec<(f64, String)> = if let Some(bins) = &histogram {
+            // A tick on the edges between bars, as many as fit.
+            band = (right - left) / n as f64;
+            let compact_x = x_min.abs().max(x_max.abs()) >= 1_000_000.0;
+            let labels: Vec<String> = (0..=n)
+                .map(|i| format_tick(bins.first + bins.step * i as f64, bins.step, compact_x))
+                .collect();
+            let widest = labels.iter().map(|l| text_width(l)).fold(0.0, f64::max);
+            let every = (((widest + 14.0) / band).ceil() as usize).max(1);
+            labels
+                .into_iter()
+                .enumerate()
+                .step_by(every)
+                .map(|(i, label)| (scale.at(bins.first + bins.step * i as f64), label))
+                .collect()
+        } else if date_x {
+            time_ticks(x_min, x_max, target)
+                .into_iter()
+                .map(|(value, label)| (scale.at(value), label))
+                .collect()
+        } else {
+            let (first, step, count) = nice_ticks(x_min, x_max, target);
+            let compact_x = x_min.abs().max(x_max.abs()) >= 1_000_000.0;
+            (0..count)
+                .map(|i| first + step * i as f64)
+                .filter(|v| *v >= x_min - step * 1e-9 && *v <= x_max + step * 1e-9)
+                .map(|v| (scale.at(v), format_tick(v, step, compact_x)))
+                .collect()
+        };
         (Some(scale), ticks)
     } else {
         (None, Vec::new())
@@ -454,21 +880,30 @@ pub fn render(spec: &ChartSpec, data: &DTable, width: f64) -> Plot {
         .iter()
         .enumerate()
         .map(|(position, &i)| {
-            let cell: &Cell = &x_column.cells()[i];
             let x = match &x_scale {
                 Some(scale) => scale.at(x_values[position]),
                 None => left + band * (position as f64 + 0.5),
             };
-            let label = match cell {
-                Cell::Number(number) => format_value(*number),
-                other => other.to_string(),
+            let label = match &histogram {
+                Some(bins) => {
+                    let from = bins.first + bins.step * position as f64;
+                    format!(
+                        "{} \u{2013} {}",
+                        format_value(from),
+                        format_value(from + bins.step)
+                    )
+                }
+                None => match &cells[i] {
+                    Cell::Number(number) => format_value(*number),
+                    other => other.to_string(),
+                },
             };
             RowLayout { x, label }
         })
         .collect();
     // Category labels: show every k-th so they never run into each other.
     let x_ticks: Vec<(f64, String)> = if linear_x {
-        x_ticks
+        linear_ticks
     } else {
         let widest = rows
             .iter()
@@ -483,14 +918,19 @@ pub fn render(spec: &ChartSpec, data: &DTable, width: f64) -> Plot {
 
     let series: Vec<SeriesLayout> = drawn
         .iter()
-        .zip(&values)
-        .map(|(name, values)| SeriesLayout {
+        .enumerate()
+        .map(|(index, name)| SeriesLayout {
             name: name.clone(),
-            points: values
+            points: values[index]
                 .iter()
-                .map(|value| {
+                .enumerate()
+                .map(|(row, value)| {
                     value.map(|value| PointLayout {
-                        y: y_scale.at(value),
+                        // In a stack, the point is the top of the segment.
+                        y: match stacks.get(index).and_then(|s| s[row]) {
+                            Some((_, to)) => y_scale.at(to),
+                            None => y_scale.at(value),
+                        },
                         value,
                     })
                 })
@@ -500,16 +940,21 @@ pub fn render(spec: &ChartSpec, data: &DTable, width: f64) -> Plot {
 
     // ---- SVG ----
     let mut svg = String::new();
-    let label = format!(
-        "{} chart of {} by {}",
-        match spec.kind {
-            ChartKind::Line => "Line",
-            ChartKind::Bar => "Bar",
-            ChartKind::Scatter => "Scatter",
-        },
-        drawn.join(", "),
-        spec.x
-    );
+    let label = match kind {
+        ChartKind::Histogram => format!("Histogram of {}", spec.x),
+        _ => format!(
+            "{} chart of {} by {}",
+            match kind {
+                ChartKind::Line => "Line",
+                ChartKind::Area => "Area",
+                ChartKind::Bar if stacked => "Stacked bar",
+                ChartKind::Bar => "Bar",
+                _ => "Scatter",
+            },
+            drawn.join(", "),
+            spec.x
+        ),
+    };
     let _ = write!(
         svg,
         "<svg xmlns=\"http://www.w3.org/2000/svg\" class=\"dappr-chart-svg\" width=\"{width}\" \
@@ -537,9 +982,19 @@ pub fn render(spec: &ChartSpec, data: &DTable, width: f64) -> Plot {
         );
     }
     for (x, text) in &x_ticks {
+        // Centred under its position, unless that would run off an edge of
+        // the drawing: then it is pulled back inside.
+        let half = text_width(text) / 2.0;
+        let (x, anchor) = if x + half > width {
+            (x.min(width), "end")
+        } else if x - half < 0.0 {
+            (x.max(0.0), "start")
+        } else {
+            (*x, "middle")
+        };
         let _ = write!(
             svg,
-            "<text x=\"{x:.1}\" y=\"{:.1}\" text-anchor=\"middle\">{}</text>",
+            "<text x=\"{x:.1}\" y=\"{:.1}\" text-anchor=\"{anchor}\">{}</text>",
             bottom + 18.0,
             escape(text)
         );
@@ -562,28 +1017,24 @@ pub fn render(spec: &ChartSpec, data: &DTable, width: f64) -> Plot {
     }
     svg.push_str("</g>");
 
-    // The baseline: zero if it is in view (bars grow from it), else the
-    // bottom of the plot.
+    // The baseline: zero if it is in view (bars and areas grow from it),
+    // else the bottom of the plot.
     let baseline = if y_first <= 0.0 && y_last >= 0.0 {
         y_scale.at(0.0)
     } else {
         bottom
     };
-    let _ = write!(
-        svg,
-        "<line class=\"dappr-chart-baseline\" x1=\"{left:.1}\" x2=\"{right:.1}\" y1=\"{baseline:.1}\" y2=\"{baseline:.1}\"/>"
-    );
 
     // Hover aids drawn under the marks; the component moves and shows them.
-    match spec.kind {
-        ChartKind::Bar => {
+    match kind {
+        ChartKind::Bar | ChartKind::Histogram => {
             let _ = write!(
                 svg,
                 "<rect class=\"dappr-chart-band\" visibility=\"hidden\" y=\"{top:.1}\" width=\"{band:.1}\" height=\"{:.1}\"/>",
                 bottom - top
             );
         }
-        ChartKind::Line => {
+        ChartKind::Line | ChartKind::Area => {
             let _ = write!(
                 svg,
                 "<line class=\"dappr-chart-crosshair\" visibility=\"hidden\" y1=\"{top:.1}\" y2=\"{bottom:.1}\"/>"
@@ -593,58 +1044,117 @@ pub fn render(spec: &ChartSpec, data: &DTable, width: f64) -> Plot {
     }
 
     // Marks.
-    match spec.kind {
-        ChartKind::Line => {
+    match kind {
+        ChartKind::Line | ChartKind::Area => {
             for (index, series) in series.iter().enumerate() {
-                // A missing value breaks the line rather than being bridged.
-                let mut path = String::new();
+                // A missing value breaks the line rather than being bridged:
+                // collect the unbroken runs of points.
+                let mut runs: Vec<Vec<(f64, f64)>> = Vec::new();
                 let mut pen_down = false;
-                let mut lone_points = Vec::new();
                 for (position, point) in series.points.iter().enumerate() {
                     match point {
                         Some(point) => {
-                            let command = if pen_down { 'L' } else { 'M' };
-                            let _ = write!(path, "{command}{:.1},{:.1}", rows[position].x, point.y);
-                            let next_missing = series
-                                .points
-                                .get(position + 1)
-                                .is_none_or(|next| next.is_none());
-                            if !pen_down && next_missing {
-                                // A value with gaps on both sides has no
-                                // line to belong to: draw it as a dot.
-                                lone_points.push((rows[position].x, point.y));
+                            if !pen_down {
+                                runs.push(Vec::new());
                             }
+                            runs.last_mut()
+                                .expect("a run was just started")
+                                .push((rows[position].x, point.y));
                             pen_down = true;
                         }
                         None => pen_down = false,
+                    }
+                }
+                if kind == ChartKind::Area {
+                    // The wash under each run, down to the baseline.
+                    let mut fill = String::new();
+                    for run in runs.iter().filter(|run| run.len() > 1) {
+                        let _ = write!(fill, "M{:.1},{baseline:.1}", run[0].0);
+                        for (x, y) in run {
+                            let _ = write!(fill, "L{x:.1},{y:.1}");
+                        }
+                        let _ = write!(fill, "L{:.1},{baseline:.1}Z", run[run.len() - 1].0);
+                    }
+                    let _ = write!(
+                        svg,
+                        "<path class=\"dappr-chart-area dappr-s{index}\" d=\"{fill}\"/>"
+                    );
+                }
+                let mut path = String::new();
+                for run in &runs {
+                    for (i, (x, y)) in run.iter().enumerate() {
+                        let command = if i == 0 { 'M' } else { 'L' };
+                        let _ = write!(path, "{command}{x:.1},{y:.1}");
                     }
                 }
                 let _ = write!(
                     svg,
                     "<path class=\"dappr-chart-line dappr-s{index}\" d=\"{path}\"/>"
                 );
-                for (x, y) in lone_points {
-                    let _ = write!(svg, "<circle class=\"dappr-chart-dot dappr-s{index}\" cx=\"{x:.1}\" cy=\"{y:.1}\" r=\"4\"/>");
+                // A value with gaps on both sides has no line to belong to:
+                // draw it as a dot.
+                for run in runs.iter().filter(|run| run.len() == 1) {
+                    let _ = write!(
+                        svg,
+                        "<circle class=\"dappr-chart-dot dappr-s{index}\" cx=\"{:.1}\" cy=\"{:.1}\" r=\"4\"/>",
+                        run[0].0, run[0].1
+                    );
                 }
             }
         }
-        ChartKind::Bar => {
+        ChartKind::Bar | ChartKind::Histogram => {
             let count = series.len() as f64;
-            // Thin bars (24px at most) with a 2px gap between neighbours.
-            let bar_width = ((band * 0.8 - 2.0 * (count - 1.0)) / count).clamp(1.0, 24.0);
-            let group_width = bar_width * count + 2.0 * (count - 1.0);
+            let (bar_width, group_width) = if histogram.is_some() {
+                // A bar spans its range, less the 2px gap between neighbours.
+                let bar = (band - 2.0).max(1.0);
+                (bar, bar)
+            } else if stacked {
+                let bar = (band * 0.8).clamp(1.0, 24.0);
+                (bar, bar)
+            } else {
+                // Thin bars (24px at most) with a 2px gap between neighbours.
+                let bar = ((band * 0.8 - 2.0 * (count - 1.0)) / count).clamp(1.0, 24.0);
+                (bar, bar * count + 2.0 * (count - 1.0))
+            };
+            // In a stack, only the outermost segment of each bar is rounded.
+            let outermost = |row: usize, index: usize, upward: bool| {
+                !stacks.iter().enumerate().skip(index + 1).any(|(_, other)| {
+                    other[row].is_some_and(|(from, to)| (to >= from) == upward && to != from)
+                })
+            };
             for (index, series) in series.iter().enumerate() {
                 let _ = write!(svg, "<g class=\"dappr-chart-bars dappr-s{index}\">");
                 for (position, point) in series.points.iter().enumerate() {
-                    if let Some(point) = point {
+                    let Some(point) = point else { continue };
+                    let path = if stacked {
+                        let Some((from, to)) = stacks[index][position] else {
+                            continue;
+                        };
+                        if from == to {
+                            continue;
+                        }
+                        let upward = to >= from;
+                        let (mut y_from, y_to) = (y_scale.at(from), y_scale.at(to));
+                        // A 2px gap separates a segment from the one before it.
+                        if from != 0.0 && (y_from - y_to).abs() > 3.0 {
+                            y_from += if upward { -2.0 } else { 2.0 };
+                        }
+                        bar_path(
+                            rows[position].x - bar_width / 2.0,
+                            bar_width,
+                            y_from,
+                            y_to,
+                            outermost(position, index, upward),
+                        )
+                    } else {
+                        if point.value == 0.0 {
+                            continue;
+                        }
                         let x =
                             rows[position].x - group_width / 2.0 + index as f64 * (bar_width + 2.0);
-                        let _ = write!(
-                            svg,
-                            "<path d=\"{}\"/>",
-                            bar_path(x, bar_width, baseline, point.y)
-                        );
-                    }
+                        bar_path(x, bar_width, baseline, point.y, true)
+                    };
+                    let _ = write!(svg, "<path d=\"{path}\"/>");
                 }
                 svg.push_str("</g>");
             }
@@ -665,6 +1175,12 @@ pub fn render(spec: &ChartSpec, data: &DTable, width: f64) -> Plot {
             }
         }
     }
+
+    // The baseline goes over the marks, so bars and fills end cleanly on it.
+    let _ = write!(
+        svg,
+        "<line class=\"dappr-chart-baseline\" x1=\"{left:.1}\" x2=\"{right:.1}\" y1=\"{baseline:.1}\" y2=\"{baseline:.1}\"/>"
+    );
 
     // Line-end labels, unless two of them would overlap (lines that end
     // close together are left to the legend).
@@ -698,7 +1214,7 @@ pub fn render(spec: &ChartSpec, data: &DTable, width: f64) -> Plot {
     }
 
     // Hover dots drawn over the marks; hidden until the component shows them.
-    if spec.kind != ChartKind::Bar {
+    if matches!(kind, ChartKind::Line | ChartKind::Area | ChartKind::Scatter) {
         for index in 0..series.len() {
             let _ = write!(
                 svg,
@@ -709,7 +1225,7 @@ pub fn render(spec: &ChartSpec, data: &DTable, width: f64) -> Plot {
     svg.push_str("</svg>");
 
     if let Some(text) = &mut note {
-        if spec.kind == ChartKind::Scatter {
+        if kind == ChartKind::Scatter {
             text.push_str(" (a scatter chart keeps to three so the colours stay distinct)");
         }
     }
@@ -717,7 +1233,7 @@ pub fn render(spec: &ChartSpec, data: &DTable, width: f64) -> Plot {
     Plot {
         svg,
         layout: Some(Layout {
-            kind: spec.kind,
+            kind,
             x_name: spec.x.clone(),
             left,
             right,
@@ -1017,5 +1533,397 @@ mod tests {
         let plot = render(&ChartSpec::new(ChartKind::Bar, "k", &["v"]), &table, 600.0);
         assert!(plot.svg.contains(">50K</text>"));
         assert!(!plot.svg.contains("50,000"));
+    }
+
+    // ---- Dates ----
+
+    #[test]
+    fn dates_convert_to_days_and_back() {
+        assert_eq!(days_from_civil(1970, 1, 1), 0);
+        assert_eq!(days_from_civil(2000, 3, 1), 11_017);
+        assert_eq!(civil_from_days(11_017), (2000, 3, 1));
+        for days in [-800_000, -1, 0, 59, 60, 19_000, 20_517, 400_000] {
+            let (y, m, d) = civil_from_days(days);
+            assert_eq!(days_from_civil(y, m, d), days);
+        }
+        assert_eq!(days_in_month(2024, 2), 29);
+        assert_eq!(days_in_month(2026, 2), 28);
+        assert_eq!(days_in_month(2026, 12), 31);
+    }
+
+    #[test]
+    fn parse_date_accepts_iso_forms_only() {
+        assert_eq!(parse_date("1970-01-02"), Some(1.0));
+        assert_eq!(parse_date("2026/03/05"), parse_date("2026-03-05"));
+        assert_eq!(parse_date("2026-03"), parse_date("2026-03-01"));
+        assert_eq!(parse_date("1970-01-01T12:00"), Some(0.5));
+        assert_eq!(parse_date("1970-01-01 06:00:00"), Some(0.25));
+        assert_eq!(parse_date(" 1970-01-01T18:00:00Z "), Some(0.75));
+        for not_a_date in [
+            "",
+            "Jan",
+            "2026",
+            "1-2",
+            "12-05",
+            "2026-13-01",
+            "2026-02-30",
+            "2026-3-5",
+            "20260305",
+            "2026-03-05T25:00",
+            "2026-03-05T10",
+            "March 5",
+            "2026-03 10:00",
+        ] {
+            assert_eq!(parse_date(not_a_date), None, "{not_a_date}");
+        }
+    }
+
+    #[test]
+    fn time_ticks_fall_on_round_moments() {
+        let day = |text: &str| parse_date(text).unwrap();
+        let labels = |from: &str, to: &str, target: usize| -> Vec<String> {
+            time_ticks(day(from), day(to), target)
+                .into_iter()
+                .map(|(_, label)| label)
+                .collect()
+        };
+        // Two years: quarters or halves, the year shown at the start and each January.
+        let ticks = labels("2025-01-01", "2026-12-31", 6);
+        assert_eq!(ticks, vec!["Jan 2025", "Jul", "Jan 2026", "Jul"]);
+        // A few weeks: days.
+        let ticks = labels("2026-03-01", "2026-03-29", 6);
+        assert_eq!(ticks, vec!["Mar 1", "Mar 8", "Mar 15", "Mar 22", "Mar 29"]);
+        // Decades: years.
+        assert_eq!(
+            labels("1990-06-01", "2026-01-01", 5),
+            vec!["2000", "2010", "2020"]
+        );
+        // One day: hours, with midnight named by its day.
+        let ticks = labels("2026-03-05T00:00", "2026-03-06T00:00", 5);
+        assert_eq!(ticks, vec!["Mar 5", "06:00", "12:00", "18:00", "Mar 6"]);
+        // Every tick is inside the range.
+        for (value, _) in time_ticks(day("2026-01-15"), day("2026-09-20"), 6) {
+            assert!(value >= day("2026-01-15") && value <= day("2026-09-20"));
+        }
+    }
+
+    #[test]
+    fn dates_on_x_are_placed_by_time_not_by_row() {
+        let mut table = DTable::with_columns(&["day", "v"]);
+        table.push_row(("2026-01-01", 1));
+        table.push_row(("2026-01-02", 2));
+        table.push_row(("2026-01-11", 3)); // nine days later
+        for kind in [ChartKind::Line, ChartKind::Area, ChartKind::Scatter] {
+            let plot = render(&ChartSpec::new(kind, "day", &["v"]), &table, 640.0);
+            let layout = plot.layout.unwrap();
+            let gap_small = layout.rows[1].x - layout.rows[0].x;
+            let gap_large = layout.rows[2].x - layout.rows[1].x;
+            assert!((gap_large / gap_small - 9.0).abs() < 1e-6, "{kind:?}");
+            // The read-out keeps the date as written.
+            assert_eq!(layout.rows[2].label, "2026-01-11");
+            assert!(
+                plot.svg.contains(">Jan "),
+                "{kind:?} should have date ticks"
+            );
+        }
+        // A bar chart keeps dates as evenly spaced categories.
+        let layout = render(
+            &ChartSpec::new(ChartKind::Bar, "day", &["v"]),
+            &table,
+            640.0,
+        )
+        .layout
+        .unwrap();
+        let gaps = (
+            layout.rows[1].x - layout.rows[0].x,
+            layout.rows[2].x - layout.rows[1].x,
+        );
+        assert!((gaps.0 - gaps.1).abs() < 1e-6);
+    }
+
+    #[test]
+    fn text_that_is_only_partly_dates_stays_categories() {
+        let mut table = DTable::with_columns(&["when", "v"]);
+        table.push_row(("2026-01-01", 1));
+        table.push_row(("later", 2));
+        table.push_row(("2026-01-11", 3));
+        let layout = render(
+            &ChartSpec::new(ChartKind::Line, "when", &["v"]),
+            &table,
+            640.0,
+        )
+        .layout
+        .unwrap();
+        let gaps = (
+            layout.rows[1].x - layout.rows[0].x,
+            layout.rows[2].x - layout.rows[1].x,
+        );
+        assert!((gaps.0 - gaps.1).abs() < 1e-6);
+    }
+
+    // ---- Area ----
+
+    #[test]
+    fn area_chart_fills_down_to_zero() {
+        let mut table = DTable::with_columns(&["t", "v"]);
+        table.push_row(("a", 120));
+        table.push_row(("b", 150));
+        table.push_row(("c", 90));
+        let plot = render(&ChartSpec::new(ChartKind::Area, "t", &["v"]), &table, 600.0);
+        // Zero is on the axis even though the smallest value is 90.
+        assert!(plot.svg.contains(">0</text>"));
+        assert_eq!(plot.svg.matches("class=\"dappr-chart-area").count(), 1);
+        assert_eq!(plot.svg.matches("class=\"dappr-chart-line").count(), 1);
+        // The fill is a closed shape that touches the baseline at both ends.
+        let fill = plot
+            .svg
+            .split("dappr-chart-area dappr-s0\" d=\"")
+            .nth(1)
+            .unwrap();
+        let fill = &fill[..fill.find('"').unwrap()];
+        let baseline: f64 = plot
+            .svg
+            .split("dappr-chart-baseline")
+            .nth(1)
+            .unwrap()
+            .split("y1=\"")
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(fill.starts_with('M') && fill.ends_with('Z'));
+        assert_eq!(fill.matches(&format!(",{baseline:.1}")).count(), 2);
+        // A line chart of the same data does not force zero.
+        let line = render(&ChartSpec::new(ChartKind::Line, "t", &["v"]), &table, 600.0);
+        assert!(!line.svg.contains(">0</text>"));
+        assert!(!line.svg.contains("dappr-chart-area"));
+    }
+
+    // ---- Stacked bars ----
+
+    fn stacked_spec() -> ChartSpec {
+        let mut spec = ChartSpec::new(ChartKind::Bar, "month", &["north", "south"]);
+        spec.stacked = true;
+        spec
+    }
+
+    #[test]
+    fn stacked_bars_pile_up_and_the_axis_covers_the_total() {
+        let plot = render(&stacked_spec(), &sales(), 640.0);
+        let layout = plot.layout.unwrap();
+        let (north, south) = (&layout.series[0], &layout.series[1]);
+        for row in 0..4 {
+            let (n, s) = (north.points[row].unwrap(), south.points[row].unwrap());
+            // South sits on top of north: its top is higher on screen.
+            assert!(s.y < n.y);
+            // Each point still reports its own value, not the running total.
+            assert!(s.value <= 140.0);
+        }
+        // Largest total is Apr: 200 + 130 = 330, so the axis reaches past 300.
+        assert!(plot.svg.contains(">400</text>") || plot.svg.contains(">350</text>"));
+        // Side by side, the same data only needs to reach 200.
+        let grouped = render(
+            &ChartSpec::new(ChartKind::Bar, "month", &["north", "south"]),
+            &sales(),
+            640.0,
+        );
+        assert!(!grouped.svg.contains(">350</text>") && !grouped.svg.contains(">400</text>"));
+    }
+
+    #[test]
+    fn stacked_segments_share_one_column_with_a_gap_and_one_rounded_end() {
+        let plot = render(&stacked_spec(), &sales(), 640.0);
+        let layout = plot.layout.clone().unwrap();
+        let paths: Vec<&str> = plot
+            .svg
+            .split("<path d=\"")
+            .skip(1)
+            .map(|p| &p[..p.find('"').unwrap()])
+            .collect();
+        assert_eq!(paths.len(), 8);
+        let start = |path: &str| -> (f64, f64) {
+            let (x, y) = path[1..path.find('L').unwrap()].split_once(',').unwrap();
+            (x.parse().unwrap(), y.parse().unwrap())
+        };
+        let (north_jan, south_jan) = (start(paths[0]), start(paths[4]));
+        // Same column...
+        assert_eq!(north_jan.0, south_jan.0);
+        // ...with the upper segment starting 2px above the top of the lower.
+        let north_top = layout.series[0].points[0].unwrap().y;
+        assert!((north_top - south_jan.1 - 2.0).abs() < 0.11);
+        // The lower segment is square (no curve of any size); the top is rounded.
+        let has_curve = |path: &str| {
+            let after_q = path.split('Q').nth(1).unwrap();
+            let (control, end) = after_q.split_once(' ').unwrap();
+            let end = &end[..end.find('L').unwrap()];
+            control != end
+        };
+        assert!(
+            !has_curve(paths[0]),
+            "lower segment should be square: {}",
+            paths[0]
+        );
+        assert!(
+            has_curve(paths[4]),
+            "top segment should be rounded: {}",
+            paths[4]
+        );
+    }
+
+    #[test]
+    fn stacked_bars_put_negatives_below_zero() {
+        let mut table = DTable::with_columns(&["k", "gain", "loss"]);
+        table.push_row(("a", 5, -3));
+        table.push_row(("b", 2, -6));
+        let mut spec = ChartSpec::new(ChartKind::Bar, "k", &["gain", "loss"]);
+        spec.stacked = true;
+        let plot = render(&spec, &table, 600.0);
+        let layout = plot.layout.unwrap();
+        let zero: f64 = plot
+            .svg
+            .split("dappr-chart-baseline")
+            .nth(1)
+            .unwrap()
+            .split("y1=\"")
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(layout.series[0].points[0].unwrap().y < zero);
+        assert!(layout.series[1].points[0].unwrap().y > zero);
+        // The axis reaches below the lowest stack (-6) and above the highest (5).
+        let ticks: Vec<f64> = plot
+            .svg
+            .split("text-anchor=\"end\">")
+            .skip(1)
+            .filter_map(|t| t[..t.find('<').unwrap()].parse().ok())
+            .collect();
+        let (lowest, highest) = (
+            ticks.iter().copied().fold(f64::INFINITY, f64::min),
+            ticks.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+        );
+        assert!(lowest <= -6.0 && highest >= 5.0, "ticks {ticks:?}");
+    }
+
+    // ---- Histogram ----
+
+    #[test]
+    fn histogram_counts_rows_in_tidy_ranges() {
+        let mut table = DTable::with_columns(&["minutes"]);
+        for v in [1, 2, 2, 3, 11, 12, 13, 14, 15, 28, 30] {
+            table.push_row([v]);
+        }
+        let mut spec = ChartSpec::new(ChartKind::Histogram, "minutes", &[]);
+        spec.bins = 3;
+        let binned = histogram_table(&table, "minutes", 3).unwrap();
+        assert_eq!(binned.headers(), vec!["from", "to", "rows"]);
+        let rows: Vec<(f64, f64, f64)> = binned
+            .rows()
+            .map(|r| {
+                (
+                    r.number("from").unwrap(),
+                    r.number("to").unwrap(),
+                    r.number("rows").unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            vec![(0.0, 10.0, 4.0), (10.0, 20.0, 5.0), (20.0, 30.0, 2.0)]
+        );
+        // Every row is counted exactly once, the largest value included.
+        assert_eq!(rows.iter().map(|r| r.2).sum::<f64>(), 11.0);
+
+        let plot = render(&spec, &table, 600.0);
+        let layout = plot.layout.unwrap();
+        assert_eq!(layout.kind, ChartKind::Histogram);
+        assert_eq!(layout.rows.len(), 3);
+        assert_eq!(layout.rows[1].label, "10 \u{2013} 20");
+        assert_eq!(layout.series[0].name, "rows");
+        assert_eq!(layout.series[0].points[1].unwrap().value, 5.0);
+        // Bars touch, less a 2px gap: each is as wide as its range.
+        let xs: Vec<f64> = plot
+            .svg
+            .split("<path d=\"M")
+            .skip(1)
+            .map(|p| p[..p.find(',').unwrap()].parse().unwrap())
+            .collect();
+        assert_eq!(xs.len(), 3);
+        assert!(((xs[1] - xs[0]) - layout.band).abs() < 0.11);
+        // The axis is labelled at the edges of the ranges.
+        for edge in ["0", "10", "20", "30"] {
+            assert!(
+                plot.svg.contains(&format!(">{edge}</text>")),
+                "missing edge {edge}"
+            );
+        }
+    }
+
+    #[test]
+    fn edge_tick_labels_stay_inside_the_drawing() {
+        let mut table = DTable::with_columns(&["v"]);
+        for v in [100, 900, 1_900] {
+            table.push_row([v]);
+        }
+        let mut spec = ChartSpec::new(ChartKind::Histogram, "v", &[]);
+        spec.bins = 2;
+        let plot = render(&spec, &table, 300.0);
+        // The label at the right edge ends at the edge instead of being
+        // centred on it and cut in half.
+        let last = plot
+            .svg
+            .rsplit("text-anchor=\"")
+            .find(|t| t.contains(">2,000<"))
+            .unwrap();
+        assert!(last.starts_with("end\""), "{last}");
+    }
+
+    #[test]
+    fn histogram_counts_use_whole_number_ticks() {
+        let mut table = DTable::with_columns(&["v"]);
+        table.push_row([1.0]);
+        table.push_row([9.0]);
+        let plot = render(
+            &ChartSpec::new(ChartKind::Histogram, "v", &[]),
+            &table,
+            600.0,
+        );
+        assert!(!plot.svg.contains(">0.5</text>"));
+        assert!(plot.svg.contains(">1</text>"));
+    }
+
+    #[test]
+    fn histogram_handles_odd_inputs() {
+        // One distinct value.
+        let mut same = DTable::with_columns(&["v"]);
+        for _ in 0..4 {
+            same.push_row([7]);
+        }
+        let binned = histogram_table(&same, "v", 0).unwrap();
+        assert_eq!(binned.column("rows").unwrap().sum(), 4.0);
+        // Text, missing values and missing columns.
+        let mut text = DTable::with_columns(&["v"]);
+        text.push_row(["a"]);
+        assert!(histogram_table(&text, "v", 0).is_none());
+        assert!(histogram_table(&text, "nope", 0).is_none());
+        let plot = render(
+            &ChartSpec::new(ChartKind::Histogram, "v", &[]),
+            &text,
+            600.0,
+        );
+        assert!(plot.svg.contains("A histogram needs numbers"));
+        // Without a number of bins, more data gets more bars, within limits.
+        let mut many = DTable::with_columns(&["v"]);
+        for i in 0..1000 {
+            many.push_row([f64::from(i) * 0.37]);
+        }
+        let bars = histogram_table(&many, "v", 0).unwrap().n_rows();
+        assert!((5..=30).contains(&bars), "{bars} bars");
     }
 }

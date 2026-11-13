@@ -88,13 +88,45 @@ impl Dapp {
     /// ```
     ///
     /// Up to 8 columns are drawn. Numbers on `x` are placed on a number
-    /// line; text (dates included) is spaced evenly in row order.
+    /// line, and so are dates written like `2026-03-05`, `2026-03` or
+    /// `2026-03-05 14:30`, which get a time axis. Other text is spaced
+    /// evenly in row order.
     pub fn line_chart(&self, source: impl TableSource, x: &str, y: &[&str]) -> Chart {
         self.chart(ChartKind::Line, source, x, y)
     }
 
+    /// An area chart: a line chart with the space down to zero lightly
+    /// filled, for an amount that changes along `x`. The y-axis always
+    /// includes zero. It reads best with one or two columns; with more,
+    /// the fills overlap and a [`line_chart`](Dapp::line_chart) is clearer.
+    ///
+    /// ```no_run
+    /// # use dappr::prelude::*;
+    /// # let dapp = Dapp::new();
+    /// let visits = DTable::from_csv("day,visits\n2026-03-01,120\n2026-03-02,180").unwrap();
+    /// dapp.area_chart(&visits, "day", &["visits"]).title("Visits per day");
+    /// ```
+    pub fn area_chart(&self, source: impl TableSource, x: &str, y: &[&str]) -> Chart {
+        self.chart(ChartKind::Area, source, x, y)
+    }
+
+    /// A histogram: how the values of one numeric column are spread. The
+    /// values are grouped into ranges, and each bar shows how many rows
+    /// fall in its range. Chain `.bins(n)` to ask for more or fewer bars.
+    ///
+    /// ```no_run
+    /// # use dappr::prelude::*;
+    /// # let dapp = Dapp::new();
+    /// let trips = DTable::from_csv("minutes\n12\n25\n8\n31\n14").unwrap();
+    /// dapp.histogram(&trips, "minutes").title("Trip length").x_label("Minutes");
+    /// ```
+    pub fn histogram(&self, source: impl TableSource, column: &str) -> Chart {
+        self.chart(ChartKind::Histogram, source, column, &[])
+    }
+
     /// A bar chart: the `y` columns compared across the categories in `x`.
-    /// Bars always start at zero; several `y` columns sit side by side.
+    /// Bars always start at zero. Several `y` columns sit side by side, or
+    /// on top of each other with `.stacked()`.
     ///
     /// ```no_run
     /// # use dappr::prelude::*;
@@ -107,7 +139,8 @@ impl Dapp {
     }
 
     /// A scatter chart: one dot per row, to see how the `y` columns relate
-    /// to `x`. Both must be numbers. Up to 3 `y` columns are drawn.
+    /// to `x`. `x` must hold numbers or dates, `y` numbers. Up to 3 `y`
+    /// columns are drawn.
     ///
     /// ```no_run
     /// # use dappr::prelude::*;

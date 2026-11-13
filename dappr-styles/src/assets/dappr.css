@@ -253,6 +253,11 @@ article .dappr-chart {
 .dappr-chart-bars path {
   fill: var(--dappr-series);
 }
+/* The fill under an area chart's line is a light wash, never a solid block. */
+.dappr-chart-area {
+  fill: var(--dappr-series);
+  opacity: 0.12;
+}
 .dappr-chart-dot,
 .dappr-chart-hover {
   fill: var(--dappr-series);
