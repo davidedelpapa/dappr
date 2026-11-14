@@ -44,15 +44,16 @@ impl Subscription {
         }
     }
 
-    /// Like [`Subscription::new`], for a detach action that *owns* the thing
-    /// being kept alive -- in practice the `wasm_bindgen` `Closure` behind a
-    /// DOM event listener, which the browser can only call for as long as
-    /// the Rust side has not dropped it.
+    /// Like [`Subscription::new`], for a detach action that *owns* what the
+    /// subscription keeps alive: the `wasm_bindgen` `Closure` behind a DOM
+    /// event listener, or the handle to a `Signal`.
     ///
     /// For such a subscription, [`Subscription::detach`] leaks the action
-    /// instead of dropping it: dropping it would free the `Closure` while
-    /// the browser still holds the listener, and every later event would
-    /// fail with "closure invoked recursively or after being dropped".
+    /// instead of dropping it, because "for the remainder of the program"
+    /// has to cover what it owns too. Dropping a listener's `Closure` would
+    /// make every later event fail with "closure invoked recursively or
+    /// after being dropped"; dropping a Signal's handle could free a derived
+    /// Signal that nothing else holds, silently ending the subscription.
     pub(crate) fn new_owning(detach: impl FnOnce() + 'static) -> Self {
         Subscription {
             detach: Some(Box::new(detach)),
@@ -60,11 +61,14 @@ impl Subscription {
         }
     }
 
-    /// Keeps this subscription alive for the remainder of the program.
+    /// Keeps this subscription alive for the remainder of the program,
+    /// together with whatever it is subscribed to.
     ///
-    /// **NOTE**: Prefer holding onto the `Subscription` instead of using
-    /// this method, when the thing it's attached to has its own,
-    /// shorter lifetime.
+    /// **NOTE**: this is a deliberate, permanent leak. Prefer holding onto
+    /// the `Subscription`, or giving it to something with a lifetime of its
+    /// own: `Signal::keep` for a Signal fed by another, or
+    /// `dom::bind` for anything that should last while an element is on
+    /// the page.
     pub fn detach(mut self) {
         let detach = self.detach.take();
         if self.owns_resource {

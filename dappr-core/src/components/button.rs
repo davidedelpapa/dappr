@@ -53,19 +53,21 @@ impl Button {
 
         let dispatcher_clone = button.dsp.clone();
         let signal_clone = button.signal.clone();
-        // `.detach()`: the listener lives as long as the page does.
-        button
-            .add_event_listener("click", move |_event| {
+        // The listener lasts while the button is on the page.
+        crate::framework::dom::bind(
+            &button.el,
+            button.add_event_listener("click", move |_event| {
                 dispatcher_clone.dispatch();
                 signal_clone.set(true);
-            })
-            .detach();
+            }),
+        );
 
         button
     }
     /// Button pressed callback.
     ///
-    /// The callback stays subscribed for the button's whole lifetime. It may
+    /// The callback stays subscribed for the button's whole lifetime, and is
+    /// freed with the button once it has been removed from the page. It may
     /// freely create components or call `pressed` again on the same button.
     pub fn pressed(&self, callback: impl Fn() + 'static) {
         self.dsp.subscribe(callback).detach();

@@ -287,11 +287,12 @@ impl Latex {
         // MathML from `latex_to_mathml`, which lets only plain MathML through.
         el.set_inner_html(&latex_to_mathml(&source.get(), MathDisplay::Block));
         let el_in = el.clone();
-        source
-            .subscribe(move |latex| {
+        crate::framework::dom::bind(
+            &el,
+            source.subscribe(move |latex| {
                 el_in.set_inner_html(&latex_to_mathml(latex, MathDisplay::Block))
-            })
-            .detach();
+            }),
+        );
         Latex { el, source }
     }
 
@@ -422,11 +423,12 @@ impl Markdown {
         el.set_class_name("dappr-markdown");
         el.set_inner_html(&markdown_to_html(&source.get(), allow_html));
         let el_in = el.clone();
-        source
-            .subscribe(move |markdown| {
+        crate::framework::dom::bind(
+            &el,
+            source.subscribe(move |markdown| {
                 el_in.set_inner_html(&markdown_to_html(markdown, allow_html))
-            })
-            .detach();
+            }),
+        );
         Markdown { el, source }
     }
 

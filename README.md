@@ -121,6 +121,30 @@ SVG output (for example from `poloto`), and `dapp.canvas(w, h)` gives you a
 canvas to draw on (for example with `plotters`). See `just example-charts` and
 `just example-chart-crates`.
 
+## Adding and removing things while the app runs
+
+A page does not have to be built once. Create components later with
+`container.with(..)`, and remove them with `unmount()` or `container.clear()`:
+
+```rust
+let results = dapp.container();
+dapp.button("Search").pressed(move || {
+    results.clear();                       // out with the old
+    results.with(|results| {
+        results.table(matches.map(top_ten)); // in with the new
+    });
+});
+```
+
+What a component needs in order to stay live -- its link to a signal, its event
+listeners, signals derived just for it with `map`, `zip` or `computed!` -- lasts
+exactly as long as the component is on the page, and is freed when it leaves.
+You do not manage subscriptions. Rebuilding a region a thousand times leaves
+nothing behind.
+
+A signal lives while something uses it: a handle you hold, a component showing
+it, or a `Subscription` you kept. See `just example-lifecycle`.
+
 ## Markdown and LaTeX
 
 ```rust

@@ -13,6 +13,7 @@
 //!   be read by hovering or by telling colours apart.
 use crate::charts::{format_value, histogram_table, render, ChartKind, ChartSpec, Layout};
 use crate::communication::signals::Signal;
+use crate::communication::subscription::Subscription;
 use crate::components::table::{Table, TableSource};
 use crate::data::table::DTable;
 use crate::framework::dom;
@@ -136,11 +137,13 @@ impl Chart {
 
         // Redraw when the data changes.
         let (state_in, parts_in) = (Rc::clone(&state), parts.clone());
-        data.subscribe(move |table| {
-            state_in.borrow_mut().data = table.clone();
-            redraw(&state_in, &parts_in);
-        })
-        .detach();
+        dom::bind(
+            &el,
+            data.subscribe(move |table| {
+                state_in.borrow_mut().data = table.clone();
+                redraw(&state_in, &parts_in);
+            }),
+        );
 
         // Redraw at the right size when the chart's place on the page
         // changes width (including the first time it gets one).
@@ -154,12 +157,20 @@ impl Chart {
         });
         if let Ok(observer) = ResizeObserver::new(on_resize.as_ref().unchecked_ref()) {
             observer.observe(&el);
+            // Stop observing when the chart leaves the page; that also
+            // frees `on_resize` and everything it holds.
+            dom::bind(
+                &el,
+                Subscription::new_owning(move || {
+                    observer.disconnect();
+                    drop(on_resize);
+                }),
+            );
         }
-        on_resize.forget(); // lives as long as the page
 
         // The read-out follows the pointer...
         let (state_in, parts_in) = (Rc::clone(&state), parts.clone());
-        dom::on(&parts.plot, "pointermove", move |event| {
+        let listener = dom::on(&parts.plot, "pointermove", move |event| {
             let Some(event) = event.dyn_ref::<MouseEvent>() else {
                 return;
             };
@@ -173,23 +184,27 @@ impl Chart {
                 .and_then(|layout| nearest(layout, x, y));
             select(&state_in, &parts_in, target);
         });
+        dom::bind(&el, listener);
         let (state_in, parts_in) = (Rc::clone(&state), parts.clone());
-        dom::on(&parts.plot, "pointerleave", move |_| {
+        let listener = dom::on(&parts.plot, "pointerleave", move |_| {
             select(&state_in, &parts_in, None);
         });
+        dom::bind(&el, listener);
 
         // ...and the arrow keys, when the chart has keyboard focus.
         let (state_in, parts_in) = (Rc::clone(&state), parts.clone());
-        dom::on(&parts.plot, "focus", move |_| {
+        let listener = dom::on(&parts.plot, "focus", move |_| {
             let current = state_in.borrow().selected;
             select(&state_in, &parts_in, Some(current.unwrap_or(0)));
         });
+        dom::bind(&el, listener);
         let (state_in, parts_in) = (Rc::clone(&state), parts.clone());
-        dom::on(&parts.plot, "blur", move |_| {
+        let listener = dom::on(&parts.plot, "blur", move |_| {
             select(&state_in, &parts_in, None);
         });
+        dom::bind(&el, listener);
         let (state_in, parts_in) = (Rc::clone(&state), parts.clone());
-        dom::on(&parts.plot, "keydown", move |event| {
+        let listener = dom::on(&parts.plot, "keydown", move |event| {
             let Some(key_event) = event.dyn_ref::<KeyboardEvent>() else {
                 return;
             };
@@ -213,6 +228,7 @@ impl Chart {
             event.prevent_default();
             select(&state_in, &parts_in, target);
         });
+        dom::bind(&el, listener);
 
         Chart {
             el,

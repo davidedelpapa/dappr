@@ -21,7 +21,8 @@
 ///
 /// It does the same job as chaining [`Signal::zip`](crate::prelude::Signal::zip)
 /// and [`Signal::map`](crate::prelude::Signal::map), without the nested
-/// tuples. Anything else the expression uses (a table to filter, say) is
+/// tuples. Like them, the result listens to its sources only while it is in
+/// use. Anything else the expression uses (a table to filter, say) is
 /// moved into it.
 #[macro_export]
 macro_rules! computed {
@@ -34,9 +35,15 @@ macro_rules! computed {
             })
         };
         let output = $crate::prelude::Signal::new(compute());
+        // The output keeps its sources; they reach it through a weak
+        // handle, so an output nobody uses any more is freed.
         $({
-            let (output, compute) = (output.clone(), $crate::prelude::Rc::clone(&compute));
-            $signal.subscribe(move |_| output.set(compute())).detach();
+            let (target, compute) = (output.downgrade(), $crate::prelude::Rc::clone(&compute));
+            output.keep($signal.subscribe(move |_| {
+                if let Some(output) = target.upgrade() {
+                    output.set(compute());
+                }
+            }));
         })+
         output
     }};
@@ -70,5 +77,23 @@ mod tests {
         let celsius = Signal::new(100.0);
         let fahrenheit = computed!(celsius => celsius * 9.0 / 5.0 + 32.0);
         assert_eq!(fahrenheit.get(), 212.0);
+    }
+
+    /// A computed signal nobody uses any more leaves nothing on its sources.
+    #[test]
+    fn computed_releases_its_sources_when_dropped() {
+        let (a, b) = (Signal::new(1), Signal::new(2));
+        let sum = computed!(a, b => a + b);
+        assert_eq!((a.subscriber_count(), b.subscriber_count()), (1, 1));
+        b.set(10);
+        assert_eq!(sum.get(), 11);
+        drop(sum);
+        assert_eq!((a.subscriber_count(), b.subscriber_count()), (0, 0));
+
+        // Built over and over, as a callback rebuilding a page would.
+        for _ in 0..50 {
+            let _product = computed!(a, b => a * b);
+        }
+        assert_eq!((a.subscriber_count(), b.subscriber_count()), (0, 0));
     }
 }

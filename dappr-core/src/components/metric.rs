@@ -53,9 +53,10 @@ impl Metric {
         let delta_el = part("dappr-metric-delta");
         delta_el.set_hidden(true);
 
-        value
-            .subscribe(move |text| value_el.set_text_content(Some(text)))
-            .detach();
+        crate::framework::dom::bind(
+            &el,
+            value.subscribe(move |text| value_el.set_text_content(Some(text))),
+        );
         Metric {
             el,
             delta_el,
@@ -106,7 +107,7 @@ impl Metric {
         });
         refresh();
         let on_change = Rc::clone(&refresh);
-        change.subscribe(move |_| on_change()).detach();
+        crate::framework::dom::bind(&self.el, change.subscribe(move |_| on_change()));
         self.refresh = refresh;
         self
     }

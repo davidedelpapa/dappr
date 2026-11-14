@@ -25,20 +25,10 @@ thread_local! {
     static NEXT_GROUP: Cell<u32> = const { Cell::new(0) };
 }
 
-/// A bare element, to reuse `Component::add_event_listener` on controls
-/// before the `Field` that will own them exists.
-struct Raw(HtmlElement);
-impl Component for Raw {
-    fn get_element(&self) -> &HtmlElement {
-        &self.0
-    }
-}
-
-/// Calls `on_event` every time `event` fires on `el`, for the page's lifetime.
+/// Calls `on_event` every time `event` fires on `el`, for as long as `el`
+/// is on the page.
 fn listen(el: &HtmlElement, event: &str, mut on_event: impl FnMut() + 'static) {
-    Raw(el.clone())
-        .add_event_listener(event, move |_| on_event())
-        .detach();
+    dom::bind(el, dom::on(el, event, move |_| on_event()));
 }
 
 fn input_el(input_type: &str) -> HtmlInputElement {
@@ -162,15 +152,16 @@ impl Field<String> {
         let (input_in, signal_in) = (input.clone(), signal.clone());
         listen(&input, "input", move || signal_in.set(input_in.value()));
         let input_out = input.clone();
-        signal
-            .subscribe(move |value| {
+        crate::framework::dom::bind(
+            &input,
+            signal.subscribe(move |value| {
                 // Only touch the control when it differs, so typing does not
                 // move the cursor.
                 if input_out.value() != *value {
                     input_out.set_value(value);
                 }
-            })
-            .detach();
+            }),
+        );
 
         let (el, _) = labelled(label, &input, false);
         Field {
@@ -188,13 +179,14 @@ impl Field<String> {
         let (area_in, signal_in) = (area.clone(), signal.clone());
         listen(&area, "input", move || signal_in.set(area_in.value()));
         let area_out = area.clone();
-        signal
-            .subscribe(move |value| {
+        crate::framework::dom::bind(
+            &area,
+            signal.subscribe(move |value| {
                 if area_out.value() != *value {
                     area_out.set_value(value);
                 }
-            })
-            .detach();
+            }),
+        );
 
         let (el, _) = labelled(label, &area, false);
         Field {
@@ -234,13 +226,14 @@ impl Field<f64> {
             }
         });
         let input_out = input.clone();
-        signal
-            .subscribe(move |value| {
+        crate::framework::dom::bind(
+            input,
+            signal.subscribe(move |value| {
                 if input_out.value_as_number() != *value {
                     input_out.set_value_as_number(*value);
                 }
-            })
-            .detach();
+            }),
+        );
         signal
     }
 
@@ -289,9 +282,10 @@ impl Field<f64> {
         output.set_text_content(Some(&initial.to_string()));
         text.after_with_node_1(&output)
             .expect("Failed to build slider");
-        signal
-            .subscribe(move |value| output.set_text_content(Some(&value.to_string())))
-            .detach();
+        crate::framework::dom::bind(
+            &input,
+            signal.subscribe(move |value| output.set_text_content(Some(&value.to_string()))),
+        );
 
         Field {
             el,
@@ -349,9 +343,10 @@ impl Field<bool> {
         let (input_in, signal_in) = (input.clone(), signal.clone());
         listen(&input, "change", move || signal_in.set(input_in.checked()));
         let input_out = input.clone();
-        signal
-            .subscribe(move |value| input_out.set_checked(*value))
-            .detach();
+        crate::framework::dom::bind(
+            &input,
+            signal.subscribe(move |value| input_out.set_checked(*value)),
+        );
 
         let (el, _) = labelled(label, &input, true);
         // Pico spaces text-like controls but not a lone checkbox; this class
@@ -464,13 +459,14 @@ impl Field<Option<UploadedFile>> {
             });
         });
         let input_out = input.clone();
-        signal
-            .subscribe(move |value| {
+        crate::framework::dom::bind(
+            &input,
+            signal.subscribe(move |value| {
                 if value.is_none() {
                     input_out.set_value("");
                 }
-            })
-            .detach();
+            }),
+        );
 
         let (el, _) = labelled(label, &input, false);
         Field {
@@ -543,13 +539,14 @@ impl<T: Display + Clone + PartialEq + 'static> Field<T> {
             }
         });
         let (select_out, options_out) = (select.clone(), options.to_vec());
-        signal
-            .subscribe(move |value| {
+        crate::framework::dom::bind(
+            &select,
+            signal.subscribe(move |value| {
                 if let Some(index) = options_out.iter().position(|option| option == value) {
                     select_out.set_selected_index(index as i32);
                 }
-            })
-            .detach();
+            }),
+        );
 
         let (el, _) = labelled(label, &select, false);
         Field {
@@ -601,13 +598,14 @@ impl<T: Display + Clone + PartialEq + 'static> Field<T> {
         }
 
         let options_out = options.to_vec();
-        signal
-            .subscribe(move |value| {
+        crate::framework::dom::bind(
+            &fieldset,
+            signal.subscribe(move |value| {
                 if let Some(index) = options_out.iter().position(|option| option == value) {
                     inputs[index].set_checked(true);
                 }
-            })
-            .detach();
+            }),
+        );
 
         Field {
             el: fieldset.clone(),

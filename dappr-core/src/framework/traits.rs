@@ -62,35 +62,38 @@ pub trait Component {
             .unwrap_or_else(|_| panic!("Cannot add the event listener of type: {}", event_type));
         // `new_owning`: this action owns `closure`, which must stay alive for
         // as long as the listener is attached -- including after `.detach()`.
+        // (To tie a listener to the component's time on the page instead,
+        // pass this Subscription to `dom::bind`.)
         Subscription::new_owning(move || {
             let _ = element
                 .remove_event_listener_with_callback(&event_type, closure.as_ref().unchecked_ref());
         })
     }
 
-    /// Removes this component's element from the DOM entirely.
+    /// Removes this component from the page, and ends what was tied to it.
     ///
-    /// This is a hard removal of the underlying node. It does **not**
-    /// automatically drop or detach any [`Subscription`]s (event listeners,
-    /// signal bindings) that this component or its creator holds -- those
-    /// are separate resources with their own lifetimes. If a component owns
-    /// `Subscription`s that only make sense while it's on the page (e.g. a
-    /// click listener on its own element), drop them at the same time you
-    /// unmount, or store them on the component and let its own `Drop`
-    /// (if it has one) take care of both together.
+    /// The element is taken out of the DOM, and everything bound to it or
+    /// to elements inside it stops at once: links to Signals, event
+    /// listeners, and Signals derived only for them. For a container, that
+    /// covers everything in it.
     ///
-    /// See `examples/lifecycle` for a worked example of building and
-    /// removing components, including their listeners, together.
+    /// A [`Subscription`] you are holding yourself -- one returned by
+    /// [`add_event_listener`](Component::add_event_listener), say -- is
+    /// yours: it ends when you drop it.
+    ///
+    /// See `examples/lifecycle` for components being created and removed
+    /// while the app runs.
     fn unmount(&self) {
-        self.get_element().remove();
+        let element = self.get_element();
+        element.remove();
+        crate::framework::dom::release(element);
     }
 
     /// Binds a Signal to the component. This can also have a template and be initially rendered or not.
     ///
-    /// The subscription this creates is `.detach()`'d internally, so the
-    /// binding lasts as long as the Signal does, even after
-    /// [`Component::unmount`]. Subscribe to the Signal yourself and keep the
-    /// [`Subscription`] if you need to end it earlier.
+    /// The link lasts while the component's element is on the page: once
+    /// it is removed, the component stops listening, and a Signal derived
+    /// just for it is freed.
     fn bind_signal<T: Display + Clone + 'static>(
         &self,
         signal: Signal<T>,
@@ -104,16 +107,15 @@ pub trait Component {
         }
 
         let template_owned = template.map(|s| s.to_string());
-        signal
-            .subscribe(move |new_value| {
-                let content = if let Some(template) = &template_owned {
-                    template.replace("{}", &new_value.to_string())
-                } else {
-                    new_value.to_string()
-                };
-                element.set_text_content(Some(&content));
-            })
-            .detach();
+        let subscription = signal.subscribe(move |new_value| {
+            let content = if let Some(template) = &template_owned {
+                template.replace("{}", &new_value.to_string())
+            } else {
+                new_value.to_string()
+            };
+            element.set_text_content(Some(&content));
+        });
+        crate::framework::dom::bind(self.get_element(), subscription);
     }
 }
 

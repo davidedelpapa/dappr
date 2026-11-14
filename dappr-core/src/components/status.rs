@@ -23,7 +23,7 @@ impl LoadStatus {
 
         show(&el, &source.get());
         let el_in = el.clone();
-        source.subscribe(move |state| show(&el_in, state)).detach();
+        crate::framework::dom::bind(&el, source.subscribe(move |state| show(&el_in, state)));
         LoadStatus { el }
     }
 }

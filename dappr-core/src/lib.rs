@@ -12,7 +12,7 @@ pub mod prelude {
         format_compact, format_value, parse_date, parse_date_with, ChartKind, ChartSpec,
     };
     pub use crate::communication::dispatcher::Dispatcher;
-    pub use crate::communication::signals::Signal;
+    pub use crate::communication::signals::{Signal, WeakSignal};
     pub use crate::communication::subscription::Subscription;
     pub use crate::components::button::*;
     pub use crate::components::chart::Chart;

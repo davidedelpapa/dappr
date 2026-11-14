@@ -80,7 +80,7 @@ pub mod prelude {
         format_compact, format_value, parse_date, parse_date_with, ChartKind, ChartSpec,
     };
     pub use dappr_core::communication::dispatcher::Dispatcher;
-    pub use dappr_core::communication::signals::Signal;
+    pub use dappr_core::communication::signals::{Signal, WeakSignal};
     pub use dappr_core::communication::subscription::Subscription; // <-- added
     pub use dappr_core::components::button::*;
     pub use dappr_core::components::chart::Chart;

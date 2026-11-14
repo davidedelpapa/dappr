@@ -34,9 +34,7 @@ impl Svg {
         el.set_class_name("dappr-svg");
         el.set_inner_html(&source.get());
         let el_in = el.clone();
-        source
-            .subscribe(move |svg| el_in.set_inner_html(svg))
-            .detach();
+        crate::framework::dom::bind(&el, source.subscribe(move |svg| el_in.set_inner_html(svg)));
         Svg { el, source }
     }
 
@@ -148,12 +146,13 @@ impl Canvas {
             canvas: self.canvas.clone(),
         };
         draw(&canvas, &signal.get());
-        signal
-            .subscribe(move |value| {
+        crate::framework::dom::bind(
+            &self.el,
+            signal.subscribe(move |value| {
                 canvas.clear();
                 draw(&canvas, value);
-            })
-            .detach();
+            }),
+        );
     }
 }
 

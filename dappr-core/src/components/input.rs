@@ -28,16 +28,11 @@ impl Input {
         };
         let signal_cloned = signal.clone();
 
-        // Update signal when user types.
-        //
-        // `.detach()` keeps this listener alive for the input element's
-        // whole lifetime, matching the previous (unconditional) behavior --
-        // `Input` has no unmount concept yet, so there's nowhere shorter to
-        // scope this subscription to. If/when components gain an explicit
-        // unmount, this is the `Subscription` that should be stored on
-        // `Input` and dropped there instead.
-        input
-            .add_event_listener("input", move |event| {
+        // Update signal when user types, for as long as the input is on
+        // the page.
+        crate::framework::dom::bind(
+            &input.el,
+            input.add_event_listener("input", move |event| {
                 let input_el = event
                     .target()
                     .expect("Cannot get the event target")
@@ -47,8 +42,8 @@ impl Input {
                     .expect("Cannot get the input element")
                     .value();
                 signal.set(value);
-            })
-            .detach();
+            }),
+        );
 
         // Sync input value with signal
         input.bind_signal(signal_cloned, None, Some(""));

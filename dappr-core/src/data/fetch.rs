@@ -118,9 +118,15 @@ fn fetch_with<T: Clone + 'static>(
     let latest = Rc::new(Cell::new(0u64));
     let finish = Rc::new(finish);
 
+    // The URL signal reaches the output through a weak handle: the output
+    // keeps the URL alive, not the other way round, so an output nobody
+    // uses any more stops fetching and is freed.
     let start = {
-        let output = output.clone();
+        let target = output.downgrade();
         move |url: &String| {
+            let Some(output) = target.upgrade() else {
+                return;
+            };
             let request = latest.get() + 1;
             latest.set(request);
             let url = url.trim().to_string();
@@ -129,12 +135,13 @@ fn fetch_with<T: Clone + 'static>(
                 return;
             }
             output.set(Loadable::Loading);
-            let (output, latest, finish) = (output.clone(), Rc::clone(&latest), Rc::clone(&finish));
+            let (target, latest, finish) = (target.clone(), Rc::clone(&latest), Rc::clone(&finish));
             spawn_local(async move {
                 let result = get(&url).await;
-                if latest.get() != request {
+                // A newer request has started, or nobody is waiting any more.
+                let Some(output) = target.upgrade().filter(|_| latest.get() == request) else {
                     return;
-                }
+                };
                 output.set(match result {
                     Ok(fetched) => finish(&url, fetched),
                     Err(message) => Loadable::Failed(message),
@@ -144,7 +151,7 @@ fn fetch_with<T: Clone + 'static>(
     };
 
     start(&url.get());
-    url.subscribe(start).detach();
+    output.keep(url.subscribe(start));
     output
 }
 

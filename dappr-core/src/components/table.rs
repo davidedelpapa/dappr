@@ -99,8 +99,10 @@ impl Table {
 
         render(&el, &data.get(), max_rows.get());
         let (el_in, max_rows_in) = (el.clone(), Rc::clone(&max_rows));
-        data.subscribe(move |table| render(&el_in, table, max_rows_in.get()))
-            .detach();
+        crate::framework::dom::bind(
+            &el,
+            data.subscribe(move |table| render(&el_in, table, max_rows_in.get())),
+        );
 
         Table { el, data, max_rows }
     }

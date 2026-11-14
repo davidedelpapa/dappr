@@ -105,11 +105,10 @@ impl RawHtml {
 
         let template_owned = template.to_string();
         let div_element_cloned = div_element.clone();
-        // `.detach()`: same reasoning as in `Input::new` -- `RawHtml` has no
-        // unmount concept yet, so this subscription is kept alive for the
-        // element's whole lifetime, matching the previous behavior.
-        signal
-            .subscribe(move |new_value| {
+        // The link to the signal lasts while the element is on the page.
+        crate::framework::dom::bind(
+            &div_element,
+            signal.subscribe(move |new_value| {
                 let content = template_owned.replace("{}", &new_value.to_string());
                 let sanitized_html: String = match sanitize {
                     Sanitize::None => content,
@@ -135,8 +134,8 @@ impl RawHtml {
                     }
                 };
                 div_element_cloned.set_inner_html(&sanitized_html);
-            })
-            .detach();
+            }),
+        );
         RawHtml { el: div_element }
     }
     pub fn new<T: Display + Clone + 'static>(

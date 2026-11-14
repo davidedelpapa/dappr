@@ -83,8 +83,6 @@ value. Listed so it is a decision, not an oversight.
   whose machine has none (about 400 KB). Without one, brackets do not stretch.
 - **POST, headers and authentication** for `fetch_table` / `fetch_text`
   (GET only today).
-- **Subscriptions tied to a component's lifetime**, so signals derived inside
-  callbacks (`map`, `zip`, `computed!`) do not stay subscribed for ever.
 - **A sparkline in the metric tile**, showing the recent trend.
 - **Syntax highlighting** for code blocks in Markdown.
 - **Removing `scan_dir` / `bundle`** from `dappr-styles`: nothing uses them

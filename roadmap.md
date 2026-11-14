@@ -75,8 +75,9 @@ Reactivity
 
 - Derived values -- OK (`Signal::map`, `Signal::zip`, `computed!`)
 
-- Subscriptions tied to a component's lifetime, so derived signals created
-  in callbacks do not leak
+- Subscriptions tied to a component's lifetime -- OK: what a component
+  needs lasts while it is on the page (`unmount`, `clear`), and derived
+  signals are freed when unused
 
 Data types
 
