@@ -15,6 +15,8 @@ pub mod input;
 /// Markdown text and LaTeX equations
 #[cfg(any(feature = "markdown", feature = "latex"))]
 pub mod markdown;
+/// A headline figure
+pub mod metric;
 /// A status line for data being loaded
 pub mod status;
 /// A view of a `DTable`

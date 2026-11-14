@@ -359,3 +359,34 @@ article .dappr-chart {
   margin: var(--pico-spacing) 0;
   overflow-x: auto;
 }
+
+/* ---- Metric ---------------------------------------------------------------
+   A label, a large figure, and its change. The figure uses the page's own
+   font, with normal (not fixed-width) digits so it does not look spaced out. */
+.dappr-metric {
+  margin-bottom: var(--pico-spacing);
+}
+.dappr-metric-label {
+  color: var(--pico-muted-color);
+  font-size: 0.875rem;
+}
+.dappr-metric-value {
+  color: var(--pico-h1-color, var(--pico-color));
+  font-size: 2rem;
+  font-weight: 600;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.dappr-metric-delta {
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+.dappr-metric-good {
+  color: var(--pico-ins-color);
+}
+.dappr-metric-bad {
+  color: var(--pico-del-color);
+}
+.dappr-metric-flat {
+  color: var(--pico-muted-color);
+}

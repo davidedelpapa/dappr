@@ -8,7 +8,9 @@ pub mod framework;
 #[doc(hidden)]
 #[allow(unused_imports)]
 pub mod prelude {
-    pub use crate::charts::{ChartKind, ChartSpec};
+    pub use crate::charts::{
+        format_compact, format_value, parse_date, parse_date_with, ChartKind, ChartSpec,
+    };
     pub use crate::communication::dispatcher::Dispatcher;
     pub use crate::communication::signals::Signal;
     pub use crate::communication::subscription::Subscription;
@@ -22,6 +24,7 @@ pub mod prelude {
     pub use crate::components::markdown::Latex;
     #[cfg(feature = "markdown")]
     pub use crate::components::markdown::Markdown;
+    pub use crate::components::metric::Metric;
     pub use crate::components::status::LoadStatus;
     pub use crate::components::table::{Table, TableSource};
     pub use crate::components::text::*;

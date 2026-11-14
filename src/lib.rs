@@ -76,7 +76,9 @@ pub mod prelude {
     pub use crate::layout::Container;
     pub use crate::text;
 
-    pub use dappr_core::charts::{ChartKind, ChartSpec};
+    pub use dappr_core::charts::{
+        format_compact, format_value, parse_date, parse_date_with, ChartKind, ChartSpec,
+    };
     pub use dappr_core::communication::dispatcher::Dispatcher;
     pub use dappr_core::communication::signals::Signal;
     pub use dappr_core::communication::subscription::Subscription; // <-- added
@@ -90,6 +92,7 @@ pub mod prelude {
     pub use dappr_core::components::markdown::Latex;
     #[cfg(feature = "markdown")]
     pub use dappr_core::components::markdown::Markdown;
+    pub use dappr_core::components::metric::Metric;
     pub use dappr_core::components::status::LoadStatus;
     pub use dappr_core::components::table::{Table, TableSource};
     pub use dappr_core::components::text::*;

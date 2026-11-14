@@ -256,6 +256,28 @@ impl Chart {
         self.update(|state| state.spec.stacked = true)
     }
 
+    /// Bar charts: draws the bars sideways, with the categories listed
+    /// down the left. Use it when the category names are long or there are
+    /// many of them; the chart grows taller to give each one a row.
+    /// Combines with [`stacked`](Chart::stacked). Chainable.
+    pub fn horizontal(self) -> Self {
+        self.update(|state| state.spec.horizontal = true)
+    }
+
+    /// Says how the dates on the x-axis are written, when they are in a
+    /// form that could be read two ways or is not recognised on its own.
+    /// In the format, `%d` is the day, `%m` the month as a number, `%b` its
+    /// name, `%Y` the year (`%y` for two digits), and `%H` `%M` `%S` the
+    /// time; everything else must match as written. Chainable.
+    ///
+    /// ```ignore
+    /// // 03/05/2026 is the 5th of March here, not the 3rd of May.
+    /// dapp.line_chart(&data, "date", &["visits"]).date_format("%m/%d/%Y");
+    /// ```
+    pub fn date_format(self, format: &str) -> Self {
+        self.update(|state| state.spec.date_format = Some(format.to_string()))
+    }
+
     /// Histograms: roughly how many bars to draw. The ranges are rounded to
     /// tidy numbers, so the exact count can differ. Chainable.
     pub fn bins(self, bins: usize) -> Self {
@@ -328,14 +350,24 @@ fn nearest(layout: &Layout, x: f64, y: f64) -> Option<usize> {
                 .map(|(index, _)| index)
         }
         _ => {
-            if x < layout.left - layout.band || x > layout.right + layout.band {
-                return None;
-            }
+            // Sideways bars: the rows run down the page, so it is the
+            // pointer's height that picks one.
+            let along = if layout.horizontal {
+                if y < layout.top || y > layout.bottom {
+                    return None;
+                }
+                y
+            } else {
+                if x < layout.left - layout.band || x > layout.right + layout.band {
+                    return None;
+                }
+                x
+            };
             let distances = layout
                 .rows
                 .iter()
                 .enumerate()
-                .map(|(index, row)| (index, (row.x - x).abs()))
+                .map(|(index, row)| (index, (row.x - along).abs()))
                 .collect();
             closest(distances).map(|(index, _)| index)
         }
@@ -440,7 +472,12 @@ fn select(state: &Rc<RefCell<State>>, parts: &Parts, target: Option<usize>) {
                     set(&crosshair, "visibility", "visible");
                 }
             } else if let Some(band) = find(".dappr-chart-band") {
-                set(&band, "x", &format!("{:.1}", row.x - layout.band / 2.0));
+                let attribute = if layout.horizontal { "y" } else { "x" };
+                set(
+                    &band,
+                    attribute,
+                    &format!("{:.1}", row.x - layout.band / 2.0),
+                );
                 set(&band, "visibility", "visible");
             }
             child(&parts.tooltip, "div", "dappr-chart-tooltip-title")
@@ -463,7 +500,18 @@ fn select(state: &Rc<RefCell<State>>, parts: &Parts, target: Option<usize>) {
                 let value = point.map_or("\u{2013}".to_string(), |p| format_value(p.value));
                 tooltip_row(&parts.tooltip, series_index, &value, &series.name);
             }
-            anchor_x = row.x;
+            if layout.horizontal {
+                // Beside the end of the row's longest bar, level with the row.
+                anchor_x = layout
+                    .series
+                    .iter()
+                    .filter_map(|series| series.points[index])
+                    .map(|point| point.y)
+                    .fold(layout.left, f64::max);
+                anchor_y = (row.x - layout.band / 2.0).max(0.0);
+            } else {
+                anchor_x = row.x;
+            }
         }
     }
 

@@ -427,6 +427,132 @@ async fn test_histogram_counts_and_follows_the_data() {
     assert!(count(finer.get_element(), "details tbody tr") > 3);
 }
 
+#[wasm_bindgen_test]
+async fn test_horizontal_bars_lie_on_their_side_and_read_out_by_row() {
+    let dapp = Dapp::new();
+    let data = DTable::from_csv(
+        "product,revenue\nEspresso machine,5200\nCoffee grinder,1800\nA very long product name indeed,900",
+    )
+    .unwrap();
+    let chart = dapp.bar_chart(&data, "product", &["revenue"]).horizontal();
+    sleep(60).await;
+    let el = chart.get_element();
+
+    let bars = el.query_selector_all("svg .dappr-chart-bars path").unwrap();
+    let rect = |i: u32| {
+        bars.item(i)
+            .unwrap()
+            .unchecked_into::<Element>()
+            .get_bounding_client_rect()
+    };
+    let (first, second) = (rect(0), rect(1));
+    // Wider than tall, one under the other, starting at the same x.
+    assert!(first.width() > first.height() * 3.0);
+    assert!(second.top() > first.bottom());
+    assert!((first.left() - second.left()).abs() < 0.5);
+    // The larger value is the longer bar.
+    assert!(first.width() > second.width() * 2.0);
+
+    // Pointing anywhere in a row reads that row, long name in full.
+    pointer_to(&chart, 0.9, 0.8);
+    assert_eq!(
+        tooltip(&chart).unwrap(),
+        vec!["A very long product name indeed", "900 revenue"]
+    );
+    pointer_to(&chart, 0.5, 0.15);
+    assert_eq!(
+        tooltip(&chart).unwrap(),
+        vec!["Espresso machine", "5,200 revenue"]
+    );
+    // The highlight is a row, not a column.
+    let band = one(el, ".dappr-chart-band").get_bounding_client_rect();
+    assert!(band.width() > band.height() * 2.0);
+}
+
+#[wasm_bindgen_test]
+async fn test_date_format_gives_ambiguous_dates_a_time_axis() {
+    let dapp = Dapp::new();
+    let data = DTable::from_csv("day,v\n01/02/2026,1\n02/02/2026,2\n11/02/2026,3").unwrap();
+    let plain = dapp.line_chart(&data, "day", &["v"]);
+    let dated = dapp
+        .line_chart(&data, "day", &["v"])
+        .date_format("%d/%m/%Y");
+    sleep(60).await;
+    let has_month_ticks = |chart: &Chart| {
+        texts(chart.get_element(), "svg .dappr-chart-ticks text")
+            .iter()
+            .any(|t| t.starts_with("Feb "))
+    };
+    assert!(!has_month_ticks(&plain));
+    assert!(has_month_ticks(&dated));
+}
+
+// ---- Metric -------------------------------------------------------------------
+
+#[wasm_bindgen_test]
+fn test_metric_shows_label_value_and_follows_a_signal() {
+    let dapp = Dapp::new();
+    let total = Signal::new(1284.0);
+    let metric = dapp.metric("Orders", total.map(|t| format_compact(*t)));
+    let el = metric.get_element();
+    assert_eq!(texts(el, ".dappr-metric-label"), vec!["Orders"]);
+    assert_eq!(texts(el, ".dappr-metric-value"), vec!["1,284"]);
+    assert!(one(el, ".dappr-metric-delta").hidden());
+
+    total.set(12_900.0);
+    assert_eq!(texts(el, ".dappr-metric-value"), vec!["12.9K"]);
+
+    // A plain number signal works as the value too.
+    let plain = dapp.metric("Raw", total.clone());
+    assert_eq!(
+        texts(plain.get_element(), ".dappr-metric-value"),
+        vec!["12,900"]
+    );
+}
+
+#[wasm_bindgen_test]
+fn test_metric_delta_shows_direction_without_relying_on_colour() {
+    let dapp = Dapp::new();
+    let change = Signal::new(12.5);
+    let revenue = dapp
+        .metric("Revenue", "48.3K")
+        .delta(&change, "% vs last month");
+    let delta = one(revenue.get_element(), ".dappr-metric-delta");
+    assert!(!delta.hidden());
+    assert_eq!(
+        delta.text_content().unwrap(),
+        "\u{25B2} +12.5% vs last month"
+    );
+    assert!(delta.class_name().contains("dappr-metric-good"));
+
+    change.set(-3.0);
+    assert_eq!(delta.text_content().unwrap(), "\u{25BC} -3% vs last month");
+    assert!(delta.class_name().contains("dappr-metric-bad"));
+
+    change.set(0.0);
+    assert_eq!(delta.text_content().unwrap(), "\u{2013} 0% vs last month");
+    assert!(delta.class_name().contains("dappr-metric-flat"));
+
+    // For costs, a fall is the good news -- whichever order the calls come in.
+    let before = dapp
+        .metric("Cost", "9")
+        .lower_is_better()
+        .delta(-4.0, " this week");
+    let after = dapp
+        .metric("Cost", "9")
+        .delta(-4.0, " this week")
+        .lower_is_better();
+    for metric in [&before, &after] {
+        let delta = one(metric.get_element(), ".dappr-metric-delta");
+        assert_eq!(delta.text_content().unwrap(), "\u{25BC} -4 this week");
+        assert!(delta.class_name().contains("dappr-metric-good"));
+    }
+    let rising_cost = dapp.metric("Cost", "9").delta(4.0, "").lower_is_better();
+    assert!(one(rising_cost.get_element(), ".dappr-metric-delta")
+        .class_name()
+        .contains("dappr-metric-bad"));
+}
+
 // ---- Bring your own drawing -------------------------------------------------
 
 #[wasm_bindgen_test]

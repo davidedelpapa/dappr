@@ -66,6 +66,12 @@ pub struct ChartSpec {
     /// the amount of data. The ranges are rounded to tidy numbers, so the
     /// exact count can differ.
     pub bins: usize,
+    /// Bar charts: draw the bars sideways, with the categories down the
+    /// left. The right choice for long category names, or many categories.
+    pub horizontal: bool,
+    /// How dates on x are written, for [`parse_date_with`], when they are
+    /// not in a form that is recognised on its own (see [`parse_date`]).
+    pub date_format: Option<String>,
 }
 
 impl ChartSpec {
@@ -80,6 +86,8 @@ impl ChartSpec {
             height: 320.0,
             stacked: false,
             bins: 0,
+            horizontal: false,
+            date_format: None,
         }
     }
 
@@ -128,6 +136,10 @@ pub struct SeriesLayout {
 pub struct Layout {
     /// The kind of chart.
     pub kind: ChartKind,
+    /// Whether the chart is turned on its side (horizontal bars). Then the
+    /// categories run top to bottom: a row's `x` is its *vertical* position
+    /// and a point's `y` is its *horizontal* one.
+    pub horizontal: bool,
     /// The name of the x column.
     pub x_name: String,
     /// Left edge of the plot area.
@@ -222,6 +234,33 @@ pub fn format_value(value: f64) -> String {
         return cleaned.to_string();
     }
     group_thousands(&cleaned.to_string())
+}
+
+/// A number shortened for a headline figure: `1,284` in full below ten
+/// thousand, then `12.9K`, `4.2M`, `1.3B`.
+pub fn format_compact(value: f64) -> String {
+    if !value.is_finite() {
+        return value.to_string();
+    }
+    let (scaled, suffix) = match value.abs() {
+        v if v >= 1e9 => (value / 1e9, "B"),
+        v if v >= 1e6 => (value / 1e6, "M"),
+        v if v >= 1e4 => (value / 1e3, "K"),
+        _ => return format_value((value * 100.0).round() / 100.0),
+    };
+    // Three significant digits: 12.9K, 129K, 1.29M.
+    let decimals = match scaled.abs() {
+        v if v >= 100.0 => 0,
+        v if v >= 10.0 => 1,
+        _ => 2,
+    };
+    let text = format!("{scaled:.decimals$}");
+    let text = if text.contains('.') {
+        text.trim_end_matches('0').trim_end_matches('.')
+    } else {
+        &text
+    };
+    format!("{text}{suffix}")
 }
 
 /// A tick label. Axes that reach 10,000 use compact labels (`10K`, `1.5M`)
@@ -327,45 +366,219 @@ fn days_in_month(year: i64, month: u32) -> u32 {
         - days_from_civil(year, month, 1)) as u32
 }
 
-/// Reads an ISO-style date or date-time as days since 1970-01-01 (with the
-/// time of day as a fraction). Understood: `2026-03-05`, `2026/03/05`,
-/// `2026-03` (the first of the month), and either followed by `T` or a
-/// space and `14:30` or `14:30:15`. Anything else is not a date.
+/// The month (1-12) a name stands for: `Mar`, `march`, `MARCH`. At least
+/// the first three letters, and nothing that is not part of the name.
+fn month_from_name(name: &str) -> Option<u32> {
+    const FULL: [&str; 12] = [
+        "january",
+        "february",
+        "march",
+        "april",
+        "may",
+        "june",
+        "july",
+        "august",
+        "september",
+        "october",
+        "november",
+        "december",
+    ];
+    let name = name.trim_end_matches('.').to_ascii_lowercase();
+    if name.len() < 3 {
+        return None;
+    }
+    FULL.iter()
+        .position(|full| full.starts_with(&name))
+        .map(|index| index as u32 + 1)
+}
+
+/// A number written with exactly `len` digits.
+fn fixed_digits(part: &str, len: usize) -> Option<u32> {
+    (part.len() == len && part.bytes().all(|b| b.is_ascii_digit()))
+        .then(|| part.parse().ok())
+        .flatten()
+}
+
+/// A number written with one or two digits.
+fn short_digits(part: &str) -> Option<u32> {
+    ((1..=2).contains(&part.len()) && part.bytes().all(|b| b.is_ascii_digit()))
+        .then(|| part.parse().ok())
+        .flatten()
+}
+
+/// Days since 1970-01-01 for a date, or `None` if there is no such day.
+fn checked_days(year: i64, month: u32, day: u32) -> Option<f64> {
+    ((1..=12).contains(&month) && day >= 1 && day <= days_in_month(year, month))
+        .then(|| days_from_civil(year, month, day) as f64)
+}
+
+/// A time of day (`14:30`, `14:30:15`, `14:30:15.5`) as a fraction of a day.
+/// A trailing `Z` or offset (`+01:00`, `-0500`) is applied, so the result is
+/// in UTC.
+fn parse_time(text: &str) -> Option<f64> {
+    let text = text.trim();
+    let (clock, offset_minutes) = if let Some(clock) = text.strip_suffix('Z') {
+        (clock, 0.0)
+    } else if let Some(position) = text.rfind(['+', '-']) {
+        let (clock, offset) = text.split_at(position);
+        let sign = if offset.starts_with('-') { -1.0 } else { 1.0 };
+        let digits: String = offset[1..].chars().filter(|c| *c != ':').collect();
+        let (hours, minutes) = match digits.len() {
+            2 => (fixed_digits(&digits, 2)?, 0),
+            4 => (
+                fixed_digits(&digits[..2], 2)?,
+                fixed_digits(&digits[2..], 2)?,
+            ),
+            _ => return None,
+        };
+        (clock, sign * f64::from(hours * 60 + minutes))
+    } else {
+        (text, 0.0)
+    };
+    let parts: Vec<&str> = clock.split(':').collect();
+    let (hours, minutes, seconds) = match parts.as_slice() {
+        [h, m] => (fixed_digits(h, 2)?, fixed_digits(m, 2)?, 0.0),
+        [h, m, s] => (
+            fixed_digits(h, 2)?,
+            fixed_digits(m, 2)?,
+            s.parse::<f64>().ok()?,
+        ),
+        _ => return None,
+    };
+    if hours > 23 || minutes > 59 || !(0.0..60.0).contains(&seconds) {
+        return None;
+    }
+    let seconds_of_day = f64::from(hours) * 3600.0 + f64::from(minutes) * 60.0 + seconds;
+    Some((seconds_of_day - offset_minutes * 60.0) / 86_400.0)
+}
+
+/// Reads a date or date-time as days since 1970-01-01 (with the time of day
+/// as a fraction). Only forms that cannot be misread are understood:
+///
+/// - year first: `2026-03-05`, `2026/03/05`, `2026-03` (the first of the month);
+/// - dotted, day first: `05.03.2026`;
+/// - with the month named: `5 Mar 2026`, `Mar 5, 2026`, `March 2026`;
+/// - any of the first two followed by `T` or a space and a time: `14:30`,
+///   `14:30:15`, optionally with `Z` or an offset such as `+01:00`.
+///
+/// Slashed dates with the year last (`03/05/2026`) are deliberately not
+/// read: they mean different days in different countries. Use
+/// [`parse_date_with`] for those.
 pub fn parse_date(text: &str) -> Option<f64> {
-    let text = text.trim().trim_end_matches('Z');
+    let text = text.trim();
+
+    // With the month named: no time of day in these forms.
+    if text
+        .chars()
+        .any(|c| c.is_ascii_alphabetic() && c != 'T' && c != 'Z')
+    {
+        let parts: Vec<&str> = text
+            .split([' ', ','])
+            .filter(|part| !part.is_empty())
+            .collect();
+        let year = |part: &str| fixed_digits(part, 4).map(i64::from);
+        return match parts.as_slice() {
+            [d, m, y] if short_digits(d).is_some() => {
+                checked_days(year(y)?, month_from_name(m)?, short_digits(d)?)
+            }
+            [m, d, y] => checked_days(year(y)?, month_from_name(m)?, short_digits(d)?),
+            [m, y] => checked_days(year(y)?, month_from_name(m)?, 1),
+            _ => None,
+        };
+    }
+
     let (date, time) = match text.split_once(['T', ' ']) {
         Some((date, time)) => (date, Some(time)),
         None => (text, None),
     };
-    let parts: Vec<&str> = date.split(['-', '/']).collect();
-    let digits = |part: &str, len: usize| -> Option<u32> {
-        (part.len() == len && part.bytes().all(|b| b.is_ascii_digit()))
-            .then(|| part.parse().ok())
-            .flatten()
+    let days = if date.contains('.') {
+        let parts: Vec<&str> = date.split('.').collect();
+        match parts.as_slice() {
+            [d, m, y] => checked_days(
+                i64::from(fixed_digits(y, 4)?),
+                fixed_digits(m, 2)?,
+                fixed_digits(d, 2)?,
+            )?,
+            _ => return None,
+        }
+    } else {
+        let parts: Vec<&str> = date.split(['-', '/']).collect();
+        match parts.as_slice() {
+            [y, m, d] => checked_days(
+                i64::from(fixed_digits(y, 4)?),
+                fixed_digits(m, 2)?,
+                fixed_digits(d, 2)?,
+            )?,
+            [y, m] if time.is_none() => {
+                checked_days(i64::from(fixed_digits(y, 4)?), fixed_digits(m, 2)?, 1)?
+            }
+            _ => return None,
+        }
     };
-    let (year, month, day) = match parts.as_slice() {
-        [y, m, d] => (digits(y, 4)?, digits(m, 2)?, digits(d, 2)?),
-        [y, m] if time.is_none() => (digits(y, 4)?, digits(m, 2)?, 1),
-        _ => return None,
-    };
-    let year = i64::from(year);
-    if !(1..=12).contains(&month) || day < 1 || day > days_in_month(year, month) {
+    match time {
+        Some(time) => Some(days + parse_time(time)?),
+        None => Some(days),
+    }
+}
+
+/// Reads a date written in a format you describe, as days since 1970-01-01.
+///
+/// The format is the text with these stand-ins: `%Y` a four-digit year,
+/// `%y` a two-digit year (2000-2099), `%m` the month as a number, `%b` its
+/// name (`Mar`, `March`), `%d` the day, `%H` `%M` `%S` hours, minutes and
+/// seconds. Month and day may be written with one or two digits. Everything
+/// else in the format must appear as is.
+///
+/// ```
+/// use dappr_core::charts::{parse_date, parse_date_with};
+///
+/// // The 3rd of May in the US, the 5th of March elsewhere: say which.
+/// assert_eq!(parse_date_with("03/05/2026", "%m/%d/%Y"), parse_date("2026-03-05"));
+/// assert_eq!(parse_date_with("03/05/2026", "%d/%m/%Y"), parse_date("2026-05-03"));
+/// ```
+pub fn parse_date_with(text: &str, format: &str) -> Option<f64> {
+    let mut rest = text.trim();
+    let (mut year, mut month, mut day) = (None, 1u32, 1u32);
+    let (mut hours, mut minutes, mut seconds) = (0u32, 0u32, 0u32);
+
+    // Takes the leading run of characters matching `keep`, up to `max` long.
+    fn take<'a>(rest: &mut &'a str, max: usize, keep: fn(char) -> bool) -> &'a str {
+        let end = rest
+            .char_indices()
+            .take(max)
+            .take_while(|(_, c)| keep(*c))
+            .last()
+            .map_or(0, |(i, c)| i + c.len_utf8());
+        let (taken, after) = rest.split_at(end);
+        *rest = after;
+        taken
+    }
+    let digit = |c: char| c.is_ascii_digit();
+
+    let mut format = format.trim().chars();
+    while let Some(c) = format.next() {
+        if c != '%' {
+            rest = rest.strip_prefix(c)?;
+            continue;
+        }
+        match format.next()? {
+            'Y' => year = Some(i64::from(fixed_digits(take(&mut rest, 4, digit), 4)?)),
+            'y' => year = Some(2000 + i64::from(fixed_digits(take(&mut rest, 2, digit), 2)?)),
+            'm' => month = short_digits(take(&mut rest, 2, digit))?,
+            'd' => day = short_digits(take(&mut rest, 2, digit))?,
+            'H' => hours = short_digits(take(&mut rest, 2, digit))?,
+            'M' => minutes = short_digits(take(&mut rest, 2, digit))?,
+            'S' => seconds = short_digits(take(&mut rest, 2, digit))?,
+            'b' => month = month_from_name(take(&mut rest, 9, |c| c.is_ascii_alphabetic()))?,
+            '%' => rest = rest.strip_prefix('%')?,
+            _ => return None,
+        }
+    }
+    if !rest.is_empty() || hours > 23 || minutes > 59 || seconds > 59 {
         return None;
     }
-    let mut days = days_from_civil(year, month, day) as f64;
-    if let Some(time) = time {
-        let time: Vec<&str> = time.trim().split(':').collect();
-        let (hours, minutes, seconds) = match time.as_slice() {
-            [h, m] => (digits(h, 2)?, digits(m, 2)?, 0.0),
-            [h, m, s] => (digits(h, 2)?, digits(m, 2)?, s.parse::<f64>().ok()?),
-            _ => return None,
-        };
-        if hours > 23 || minutes > 59 || !(0.0..60.0).contains(&seconds) {
-            return None;
-        }
-        days += (f64::from(hours) * 3600.0 + f64::from(minutes) * 60.0 + seconds) / 86_400.0;
-    }
-    Some(days)
+    let days = checked_days(year?, month, day)?;
+    Some(days + f64::from(hours * 3600 + minutes * 60 + seconds) / 86_400.0)
 }
 
 /// Tick positions (in days) and labels for a time axis from `min` to `max`,
@@ -579,6 +792,34 @@ fn message(width: f64, height: f64, text: &str) -> Plot {
     }
 }
 
+/// Where each segment of a stacked bar starts and ends, in data units:
+/// positive values pile up from zero, negative ones pile down from it.
+fn stack(values: &[Vec<Option<f64>>], rows: usize) -> Vec<Vec<Option<(f64, f64)>>> {
+    let mut up = vec![0.0; rows];
+    let mut down = vec![0.0; rows];
+    values
+        .iter()
+        .map(|series| {
+            series
+                .iter()
+                .enumerate()
+                .map(|(row, value)| {
+                    value.map(|value| {
+                        let base = if value >= 0.0 {
+                            &mut up[row]
+                        } else {
+                            &mut down[row]
+                        };
+                        let from = *base;
+                        *base += value;
+                        (from, *base)
+                    })
+                })
+                .collect()
+        })
+        .collect()
+}
+
 /// A bar segment from `from` to `to` (both y positions). With `round_end`,
 /// the `to` end is rounded: that is the end showing the value. The `from`
 /// end -- the baseline, or the segment below in a stack -- stays square.
@@ -603,6 +844,318 @@ fn bar_path(x: f64, width: f64, from: f64, to: f64, round_end: bool) -> String {
     )
 }
 
+/// A sideways bar segment at height `y`, from `from` to `to` (both x
+/// positions), `thickness` tall. As in [`bar_path`], only the `to` end may
+/// be rounded.
+fn horizontal_bar_path(y: f64, thickness: f64, from: f64, to: f64, round_end: bool) -> String {
+    let length = (to - from).abs();
+    let r = if round_end {
+        4f64.min(thickness / 2.0).min(length)
+    } else {
+        0.0
+    };
+    // `d` is +1 when the bar goes right from `from`, -1 when left.
+    let d = if to >= from { 1.0 } else { -1.0 };
+    format!(
+        "M{b:.1},{y0:.1}L{xr:.1},{y0:.1}Q{x:.1},{y0:.1} {x:.1},{yr0:.1}L{x:.1},{yr1:.1}Q{x:.1},{y1:.1} {xr:.1},{y1:.1}L{b:.1},{y1:.1}Z",
+        b = from,
+        x = to,
+        xr = to - d * r,
+        y0 = y,
+        y1 = y + thickness,
+        yr0 = y + r,
+        yr1 = y + thickness - r,
+    )
+}
+
+/// A bar chart turned on its side: categories down the left, values along
+/// the bottom. Unlike the other charts it grows taller with the number of
+/// categories, so every one keeps a readable row.
+fn render_horizontal_bars(spec: &ChartSpec, data: &DTable, width: f64) -> Plot {
+    let width = width.max(160.0);
+    let Some(category_column) = data.column(&spec.x) else {
+        return message(
+            width,
+            spec.height,
+            &format!("No column named \"{}\"", spec.x),
+        );
+    };
+    let drawn = spec.drawn_series();
+    if drawn.is_empty() {
+        return message(width, spec.height, "No columns to plot");
+    }
+    for name in drawn {
+        if data.column(name).is_none() {
+            return message(width, spec.height, &format!("No column named \"{name}\""));
+        }
+    }
+    let note = (drawn.len() < spec.y.len()).then(|| {
+        format!(
+            "Showing the first {} of {} series",
+            drawn.len(),
+            spec.y.len()
+        )
+    });
+    let n = data.n_rows();
+    if n == 0 {
+        return message(width, spec.height, "No data to plot");
+    }
+    let values: Vec<Vec<Option<f64>>> = drawn
+        .iter()
+        .map(|name| {
+            data.column(name)
+                .map(|column| {
+                    column
+                        .cells()
+                        .iter()
+                        .map(|cell| cell.as_f64().filter(|v| v.is_finite()))
+                        .collect()
+                })
+                .unwrap_or_default()
+        })
+        .collect();
+    let stacked = spec.stacked && drawn.len() > 1;
+    let stacks = if stacked {
+        stack(&values, n)
+    } else {
+        Vec::new()
+    };
+    let extent: Vec<f64> = if stacked {
+        stacks
+            .iter()
+            .flatten()
+            .flatten()
+            .map(|(_, to)| *to)
+            .collect()
+    } else {
+        values.iter().flatten().flatten().copied().collect()
+    };
+    if extent.is_empty() {
+        return message(width, spec.height, "No numbers to plot");
+    }
+
+    // ---- Labels down the left, at most 40% of the width ----
+    let labels: Vec<String> = category_column
+        .cells()
+        .iter()
+        .map(|cell| match cell {
+            Cell::Number(number) => format_value(*number),
+            other => other.to_string(),
+        })
+        .collect();
+    let widest = labels
+        .iter()
+        .map(|label| text_width(&shorten(label)))
+        .fold(0.0, f64::max);
+    let left = (widest + 14.0).min(width * 0.4);
+    let right = (width - 16.0).max(left + 40.0);
+    // How many characters of a label fit in the space on the left.
+    let fits = (((left - 14.0) / CHAR_WIDTH).floor() as usize).max(3);
+    let fit = |label: &str| -> String {
+        if label.chars().count() <= fits {
+            label.to_string()
+        } else {
+            let head: String = label.chars().take(fits - 1).collect();
+            format!("{head}\u{2026}")
+        }
+    };
+
+    // ---- Value scale, along the bottom, always including zero ----
+    let value_min = extent.iter().copied().fold(0.0, f64::min);
+    let value_max = extent.iter().copied().fold(0.0, f64::max);
+    let target = (((right - left) / 90.0).floor() as usize).clamp(2, 8);
+    let (first, step, count) = nice_ticks(value_min, value_max, target);
+    let last = first + step * (count - 1) as f64;
+    let compact = first.abs().max(last.abs()) >= 10_000.0;
+    let scale = Scale {
+        domain: (first, last),
+        range: (left, right),
+    };
+
+    // ---- Rows: at least as tall as the bars need, and the chart at least
+    // as tall as asked ----
+    let top = if spec.y_label.is_empty() { 10.0 } else { 28.0 };
+    let below = if spec.x_label.is_empty() { 26.0 } else { 46.0 };
+    let series_count = drawn.len() as f64;
+    let side_by_side = if stacked { 1.0 } else { series_count };
+    let smallest_band = side_by_side * 10.0 + 2.0 * (side_by_side - 1.0) + 10.0;
+    let band = ((spec.height.max(120.0) - top - below) / n as f64).max(smallest_band);
+    let bottom = top + band * n as f64;
+    let height = bottom + below;
+    let bar_thickness = ((band * 0.8 - 2.0 * (side_by_side - 1.0)) / side_by_side).clamp(1.0, 24.0);
+    let group_thickness = bar_thickness * side_by_side + 2.0 * (side_by_side - 1.0);
+
+    let rows: Vec<RowLayout> = labels
+        .iter()
+        .enumerate()
+        .map(|(position, label)| RowLayout {
+            x: top + band * (position as f64 + 0.5),
+            label: label.clone(),
+        })
+        .collect();
+    let series: Vec<SeriesLayout> = drawn
+        .iter()
+        .enumerate()
+        .map(|(index, name)| SeriesLayout {
+            name: name.clone(),
+            points: values[index]
+                .iter()
+                .enumerate()
+                .map(|(row, value)| {
+                    value.map(|value| PointLayout {
+                        y: match stacks.get(index).and_then(|s| s[row]) {
+                            Some((_, to)) => scale.at(to),
+                            None => scale.at(value),
+                        },
+                        value,
+                    })
+                })
+                .collect(),
+        })
+        .collect();
+
+    // ---- SVG ----
+    let mut svg = String::new();
+    let _ = write!(
+        svg,
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" class=\"dappr-chart-svg\" width=\"{width}\" \
+         height=\"{height:.0}\" viewBox=\"0 0 {width} {height:.0}\" role=\"img\" aria-label=\"{}\">",
+        escape(&format!(
+            "{} chart of {} by {}",
+            if stacked { "Stacked bar" } else { "Bar" },
+            drawn.join(", "),
+            spec.x
+        ))
+    );
+    svg.push_str("<g class=\"dappr-chart-grid\">");
+    let ticks: Vec<(f64, String)> = (0..count)
+        .map(|i| {
+            let value = first + step * i as f64;
+            (scale.at(value), format_tick(value, step, compact))
+        })
+        .collect();
+    for (x, _) in &ticks {
+        let _ = write!(
+            svg,
+            "<line x1=\"{x:.1}\" x2=\"{x:.1}\" y1=\"{top:.1}\" y2=\"{bottom:.1}\"/>"
+        );
+    }
+    svg.push_str("</g><g class=\"dappr-chart-ticks\">");
+    for (x, text) in &ticks {
+        let half = text_width(text) / 2.0;
+        let (x, anchor) = if x + half > width {
+            (x.min(width), "end")
+        } else {
+            (*x, "middle")
+        };
+        let _ = write!(
+            svg,
+            "<text x=\"{x:.1}\" y=\"{:.1}\" text-anchor=\"{anchor}\">{}</text>",
+            bottom + 18.0,
+            escape(text)
+        );
+    }
+    for row in &rows {
+        let _ = write!(
+            svg,
+            "<text x=\"{:.1}\" y=\"{:.1}\" text-anchor=\"end\">{}</text>",
+            left - 8.0,
+            row.x + FONT_SIZE / 3.0,
+            escape(&fit(&row.label))
+        );
+    }
+    if !spec.y_label.is_empty() {
+        let _ = write!(
+            svg,
+            "<text class=\"dappr-chart-axis-label\" x=\"0\" y=\"12\">{}</text>",
+            escape(&spec.y_label)
+        );
+    }
+    if !spec.x_label.is_empty() {
+        let _ = write!(
+            svg,
+            "<text class=\"dappr-chart-axis-label\" x=\"{:.1}\" y=\"{:.1}\" text-anchor=\"middle\">{}</text>",
+            (left + right) / 2.0,
+            height - 6.0,
+            escape(&spec.x_label)
+        );
+    }
+    svg.push_str("</g>");
+
+    // The highlight behind the hovered row; the component moves and shows it.
+    let _ = write!(
+        svg,
+        "<rect class=\"dappr-chart-band\" visibility=\"hidden\" x=\"{left:.1}\" width=\"{:.1}\" height=\"{band:.1}\"/>",
+        right - left
+    );
+
+    let zero = scale.at(0.0);
+    let outermost = |row: usize, index: usize, rightward: bool| {
+        !stacks.iter().skip(index + 1).any(|other| {
+            other[row].is_some_and(|(from, to)| (to >= from) == rightward && to != from)
+        })
+    };
+    for (index, series) in series.iter().enumerate() {
+        let _ = write!(svg, "<g class=\"dappr-chart-bars dappr-s{index}\">");
+        for (position, point) in series.points.iter().enumerate() {
+            let Some(point) = point else { continue };
+            let path = if stacked {
+                let Some((from, to)) = stacks[index][position] else {
+                    continue;
+                };
+                if from == to {
+                    continue;
+                }
+                let rightward = to >= from;
+                let (mut x_from, x_to) = (scale.at(from), scale.at(to));
+                // A 2px gap separates a segment from the one before it.
+                if from != 0.0 && (x_to - x_from).abs() > 3.0 {
+                    x_from += if rightward { 2.0 } else { -2.0 };
+                }
+                horizontal_bar_path(
+                    rows[position].x - bar_thickness / 2.0,
+                    bar_thickness,
+                    x_from,
+                    x_to,
+                    outermost(position, index, rightward),
+                )
+            } else {
+                if point.value == 0.0 {
+                    continue;
+                }
+                let y =
+                    rows[position].x - group_thickness / 2.0 + index as f64 * (bar_thickness + 2.0);
+                horizontal_bar_path(y, bar_thickness, zero, point.y, true)
+            };
+            let _ = write!(svg, "<path d=\"{path}\"/>");
+        }
+        svg.push_str("</g>");
+    }
+    // The line the bars grow from, over their square ends.
+    let _ = write!(
+        svg,
+        "<line class=\"dappr-chart-baseline\" x1=\"{zero:.1}\" x2=\"{zero:.1}\" y1=\"{top:.1}\" y2=\"{bottom:.1}\"/>"
+    );
+    svg.push_str("</svg>");
+
+    Plot {
+        svg,
+        layout: Some(Layout {
+            kind: ChartKind::Bar,
+            horizontal: true,
+            x_name: spec.x.clone(),
+            left,
+            right,
+            top,
+            bottom,
+            band,
+            rows,
+            series,
+        }),
+        note,
+    }
+}
+
 /// Draws `data` as `spec` describes, `width` pixels wide.
 pub fn render(spec: &ChartSpec, data: &DTable, width: f64) -> Plot {
     let width = width.max(160.0);
@@ -612,6 +1165,10 @@ pub fn render(spec: &ChartSpec, data: &DTable, width: f64) -> Plot {
     let Some(x_column) = data.column(&spec.x) else {
         return message(width, height, &format!("No column named \"{}\"", spec.x));
     };
+
+    if kind == ChartKind::Bar && spec.horizontal {
+        return render_horizontal_bars(spec, data, width);
+    }
 
     // ---- What goes on each axis ----
     // A histogram is drawn from its counts; everything else from the table.
@@ -655,6 +1212,10 @@ pub fn render(spec: &ChartSpec, data: &DTable, width: f64) -> Plot {
         )
     });
 
+    let read_date = |text: &str| match &spec.date_format {
+        Some(format) => parse_date_with(text, format),
+        None => parse_date(text),
+    };
     // x as numbers, when it can be placed on a number line: numbers as they
     // are, dates as days. (A bar chart never does this: its x is categories.)
     let numeric_x = x_column.is_numeric();
@@ -663,7 +1224,7 @@ pub fn render(spec: &ChartSpec, data: &DTable, width: f64) -> Plot {
         && cells.iter().any(|cell| !cell.is_null())
         && cells.iter().all(|cell| match cell {
             Cell::Null => true,
-            Cell::Text(text) => parse_date(text).is_some(),
+            Cell::Text(text) => read_date(text).is_some(),
             _ => false,
         });
     if kind == ChartKind::Scatter && !numeric_x && !date_x {
@@ -677,7 +1238,7 @@ pub fn render(spec: &ChartSpec, data: &DTable, width: f64) -> Plot {
     let x_number = |index: usize| -> Option<f64> {
         match &cells[index] {
             Cell::Number(number) => Some(*number).filter(|n| n.is_finite()),
-            Cell::Text(text) if date_x => parse_date(text),
+            Cell::Text(text) if date_x => read_date(text),
             _ => None,
         }
     };
@@ -717,30 +1278,8 @@ pub fn render(spec: &ChartSpec, data: &DTable, width: f64) -> Plot {
     // Positive values pile upwards from zero, negative ones downwards.
     let stacked = kind == ChartKind::Bar && spec.stacked && drawn.len() > 1;
     let n = row_indices.len();
-    let stacks: Vec<Vec<Option<(f64, f64)>>> = if stacked {
-        let mut up = vec![0.0; n];
-        let mut down = vec![0.0; n];
-        values
-            .iter()
-            .map(|series| {
-                series
-                    .iter()
-                    .enumerate()
-                    .map(|(row, value)| {
-                        value.map(|value| {
-                            let base = if value >= 0.0 {
-                                &mut up[row]
-                            } else {
-                                &mut down[row]
-                            };
-                            let from = *base;
-                            *base += value;
-                            (from, *base)
-                        })
-                    })
-                    .collect()
-            })
-            .collect()
+    let stacks = if stacked {
+        stack(&values, n)
     } else {
         Vec::new()
     };
@@ -1234,6 +1773,7 @@ pub fn render(spec: &ChartSpec, data: &DTable, width: f64) -> Plot {
         svg,
         layout: Some(Layout {
             kind,
+            horizontal: false,
             x_name: spec.x.clone(),
             left,
             right,
@@ -1925,5 +2465,210 @@ mod tests {
         }
         let bars = histogram_table(&many, "v", 0).unwrap().n_rows();
         assert!((5..=30).contains(&bars), "{bars} bars");
+    }
+
+    // ---- More date forms ----
+
+    #[test]
+    fn parse_date_reads_named_months_dots_and_offsets() {
+        let iso = parse_date("2026-03-05");
+        for same_day in [
+            "5 Mar 2026",
+            "05 March 2026",
+            "Mar 5, 2026",
+            "march 5 2026",
+            "05.03.2026",
+        ] {
+            assert_eq!(parse_date(same_day), iso, "{same_day}");
+        }
+        assert_eq!(parse_date("March 2026"), parse_date("2026-03-01"));
+        assert_eq!(parse_date("Sept 2026"), parse_date("2026-09-01"));
+        // Offsets are applied: 14:30 at +01:00 is 13:30 UTC.
+        assert_eq!(
+            parse_date("2026-03-05T14:30:00+01:00"),
+            parse_date("2026-03-05T13:30:00Z")
+        );
+        assert_eq!(
+            parse_date("2026-03-05 23:30-0200"),
+            parse_date("2026-03-06T01:30")
+        );
+        // Ambiguous or malformed: not read.
+        for not_read in [
+            "03/05/2026",
+            "5/3/2026",
+            "Ma 5 2026",
+            "5 Foo 2026",
+            "31.02.2026",
+            "5.3.2026",
+            "Mar 5",
+            "Tuesday",
+            "2026-03-05T14:30+1",
+            "Mar 32, 2026",
+        ] {
+            assert_eq!(parse_date(not_read), None, "{not_read}");
+        }
+    }
+
+    #[test]
+    fn parse_date_with_follows_the_format_given() {
+        let day = parse_date("2026-03-05");
+        assert_eq!(parse_date_with("03/05/2026", "%m/%d/%Y"), day);
+        assert_eq!(parse_date_with("5/3/2026", "%d/%m/%Y"), day);
+        assert_eq!(parse_date_with("05-Mar-26", "%d-%b-%y"), day);
+        assert_eq!(parse_date_with("20260305", "%Y%m%d"), day);
+        assert_eq!(
+            parse_date_with("05/03/2026 14:30", "%d/%m/%Y %H:%M"),
+            parse_date("2026-03-05T14:30")
+        );
+        assert_eq!(
+            parse_date_with("week 3 of 2026: 3%", "week %d of %Y: %m%%"),
+            parse_date("2026-03-03")
+        );
+        for (text, format) in [
+            ("03/05/2026", "%d-%m-%Y"),   // wrong separator
+            ("03/05/2026 x", "%m/%d/%Y"), // left-over text
+            ("31/02/2026", "%d/%m/%Y"),   // no such day
+            ("03/05", "%m/%d"),           // no year
+            ("03/05/2026", "%m/%d/%Q"),   // unknown stand-in
+        ] {
+            assert_eq!(parse_date_with(text, format), None, "{text} as {format}");
+        }
+    }
+
+    #[test]
+    fn a_date_format_puts_ambiguous_dates_on_a_time_axis() {
+        let mut table = DTable::with_columns(&["day", "v"]);
+        table.push_row(("01/02/2026", 1)); // 1 Feb
+        table.push_row(("02/02/2026", 2)); // 2 Feb
+        table.push_row(("11/02/2026", 3)); // 11 Feb
+        let mut spec = ChartSpec::new(ChartKind::Line, "day", &["v"]);
+        // Without a format these are not read as dates: evenly spaced.
+        let plain = render(&spec, &table, 640.0).layout.unwrap();
+        assert!(
+            ((plain.rows[2].x - plain.rows[1].x) - (plain.rows[1].x - plain.rows[0].x)).abs()
+                < 1e-6
+        );
+        spec.date_format = Some("%d/%m/%Y".to_string());
+        let dated = render(&spec, &table, 640.0).layout.unwrap();
+        let ratio = (dated.rows[2].x - dated.rows[1].x) / (dated.rows[1].x - dated.rows[0].x);
+        assert!((ratio - 9.0).abs() < 1e-6);
+    }
+
+    // ---- Horizontal bars ----
+
+    fn horizontal(y: &[&str], stacked: bool) -> ChartSpec {
+        let mut spec = ChartSpec::new(ChartKind::Bar, "month", y);
+        spec.horizontal = true;
+        spec.stacked = stacked;
+        spec
+    }
+
+    #[test]
+    fn horizontal_bars_run_rightwards_from_a_shared_zero() {
+        let plot = render(&horizontal(&["north"], false), &sales(), 640.0);
+        let layout = plot.layout.unwrap();
+        assert!(layout.horizontal);
+        // Categories run top to bottom, in table order.
+        assert!(layout.rows.windows(2).all(|w| w[0].x < w[1].x));
+        assert_eq!(layout.rows[0].label, "Jan");
+        // A larger value reaches further right: 200 (Apr) beyond 90 (Mar).
+        let north = &layout.series[0];
+        assert!(north.points[3].unwrap().y > north.points[2].unwrap().y);
+        // Every bar starts at the same x, the zero line.
+        let starts: Vec<f64> = plot
+            .svg
+            .split("<path d=\"M")
+            .skip(1)
+            .map(|p| p[..p.find(',').unwrap()].parse().unwrap())
+            .collect();
+        assert_eq!(starts.len(), 4);
+        assert!(starts.iter().all(|x| (x - starts[0]).abs() < 0.11));
+        assert!(plot.svg.contains(">0</text>"));
+        // Category names sit to the left of the bars.
+        assert!(plot.svg.contains("text-anchor=\"end\">Jan</text>"));
+    }
+
+    #[test]
+    fn horizontal_bars_grow_taller_with_more_categories() {
+        let height = |rows: usize| -> f64 {
+            let mut table = DTable::with_columns(&["name", "v"]);
+            for i in 0..rows {
+                table.push_row((format!("Category number {i}"), i as f64));
+            }
+            let mut spec = ChartSpec::new(ChartKind::Bar, "name", &["v"]);
+            spec.horizontal = true;
+            let svg = render(&spec, &table, 640.0).svg;
+            svg.split("height=\"")
+                .nth(1)
+                .unwrap()
+                .split('"')
+                .next()
+                .unwrap()
+                .parse()
+                .unwrap()
+        };
+        assert_eq!(height(4), 320.0);
+        // Forty categories do not fit in 320px at a readable size.
+        assert!(height(40) > 800.0);
+    }
+
+    #[test]
+    fn horizontal_labels_are_shortened_to_leave_room_for_the_bars() {
+        let mut table = DTable::with_columns(&["name", "v"]);
+        table.push_row(("An extremely long category name that goes on and on", 5));
+        table.push_row(("Short", 3));
+        let mut spec = ChartSpec::new(ChartKind::Bar, "name", &["v"]);
+        spec.horizontal = true;
+        let plot = render(&spec, &table, 300.0);
+        let layout = plot.layout.unwrap();
+        assert!(layout.left <= 300.0 * 0.4 + 1e-9);
+        assert!(plot.svg.contains('\u{2026}'));
+        // The read-out keeps the full name.
+        assert!(layout.rows[0].label.ends_with("on and on"));
+    }
+
+    #[test]
+    fn horizontal_bars_can_be_grouped_or_stacked() {
+        let grouped = render(&horizontal(&["north", "south"], false), &sales(), 640.0);
+        let stacked = render(&horizontal(&["north", "south"], true), &sales(), 640.0);
+        let first = |plot: &Plot, i: usize| -> (f64, f64) {
+            let path = plot.svg.split("<path d=\"M").nth(i + 1).unwrap();
+            let (x, y) = path[..path.find('L').unwrap()].split_once(',').unwrap();
+            (x.parse().unwrap(), y.parse().unwrap())
+        };
+        // Grouped: both start at zero, one below the other.
+        let (north, south) = (first(&grouped, 0), first(&grouped, 4));
+        assert_eq!(north.0, south.0);
+        assert!(south.1 > north.1);
+        // Stacked: same row, the second starting 2px after the first ends.
+        let (north, south) = (first(&stacked, 0), first(&stacked, 4));
+        assert_eq!(north.1, south.1);
+        let north_end = stacked.layout.as_ref().unwrap().series[0].points[0]
+            .unwrap()
+            .y;
+        assert!((south.0 - north_end - 2.0).abs() < 0.11);
+        // The axis covers the total (Apr: 330) when stacked.
+        let south_end = stacked.layout.as_ref().unwrap().series[1].points[3].unwrap();
+        assert!(south_end.y <= stacked.layout.as_ref().unwrap().right + 1e-9);
+        assert_eq!(south_end.value, 130.0);
+    }
+
+    #[test]
+    fn compact_numbers_for_headline_figures() {
+        for (value, text) in [
+            (0.0, "0"),
+            (7.0, "7"),
+            (1284.0, "1,284"),
+            (9999.4, "9,999.4"),
+            (12_900.0, "12.9K"),
+            (129_000.0, "129K"),
+            (4_200_000.0, "4.2M"),
+            (1_000_000.0, "1M"),
+            (1_290_000_000.0, "1.29B"),
+            (-15_500.0, "-15.5K"),
+            (3.14159, "3.14"),
+        ] {
+            assert_eq!(format_compact(value), text);
+        }
     }
 }

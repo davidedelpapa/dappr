@@ -14,6 +14,7 @@ use dappr_core::charts::ChartKind;
 use dappr_core::communication::signals::Signal;
 use dappr_core::components::chart::Chart;
 use dappr_core::components::drawing::{Canvas, Svg};
+use dappr_core::components::metric::Metric;
 use dappr_core::components::status::LoadStatus;
 use dappr_core::components::table::{Table, TableSource};
 use dappr_core::data::load::Loadable;
@@ -150,6 +151,28 @@ impl Dapp {
     /// ```
     pub fn scatter_chart(&self, source: impl TableSource, x: &str, y: &[&str]) -> Chart {
         self.chart(ChartKind::Scatter, source, x, y)
+    }
+
+    /// A headline figure: a label and a large value. Use it when the point
+    /// is one number -- a total, a count, a rate -- rather than a chart.
+    ///
+    /// `value` is text, or a `Signal<String>` to follow; format it as it
+    /// should be read (`format_compact` shortens large numbers to `12.9K`).
+    /// Chain `.delta(change, suffix)` to show how much it moved.
+    ///
+    /// ```no_run
+    /// # use dappr::prelude::*;
+    /// # let dapp = Dapp::new();
+    /// # let orders = DTable::new();
+    /// let [a, b] = dapp.columns();
+    /// a.metric("Orders", orders.n_rows().to_string());
+    /// b.metric("Revenue", format_compact(48_250.0))
+    ///     .delta(12.5, "% vs last month");
+    /// ```
+    pub fn metric(&self, label: &str, value: impl TextSource) -> Metric {
+        let metric = Metric::new(label, value);
+        self.append(metric.get_element());
+        metric
     }
 
     /// Shows an SVG drawing from its text -- typically a chart made with a

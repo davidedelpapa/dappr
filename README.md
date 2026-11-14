@@ -89,21 +89,32 @@ dapp.scatter_chart(&selected, "units", &["revenue"]);
 
 // How one column's values are spread.
 dapp.histogram(&selected, "revenue").bins(10);
+
+// Long category names: sideways bars, largest first.
+dapp.bar_chart(&by_product, "product", &["revenue"]).horizontal();
+
+// When the point is one number, a figure says it better than a chart.
+dapp.metric("Revenue", format_compact(48_250.0)).delta(12.5, "% vs last month");
 ```
 
 | Chart | Use it for |
 |---|---|
 | `line_chart` | change along an ordered x: time, steps |
 | `area_chart` | the same, for an amount; best with one or two columns |
-| `bar_chart` | comparing categories; `.stacked()` for parts of a whole |
+| `bar_chart` | comparing categories; `.stacked()` for parts of a whole, `.horizontal()` for long names |
 | `scatter_chart` | how two numeric columns relate |
 | `histogram` | how the values of one column are spread |
+| `metric` | one headline number, with its change |
 
 Every chart sizes itself to its place on the page, follows the light or dark
 theme, and comes with a legend (for several series), a read-out that follows
 the pointer or the arrow keys, and a "Show data" table. Colours are assigned in
 a fixed order chosen to stay distinguishable for colour-blind readers, which is
 why a line, area or bar chart draws at most 8 series and a scatter chart 3.
+
+Dates are recognised when they cannot be misread: `2026-03-05`, `05.03.2026`,
+`5 Mar 2026`, with or without a time. For anything else, such as
+`03/05/2026`, say how it is written: `.date_format("%m/%d/%Y")`.
 
 For anything these do not cover, use a plotting crate: `dapp.svg(text)` shows
 SVG output (for example from `poloto`), and `dapp.canvas(w, h)` gives you a

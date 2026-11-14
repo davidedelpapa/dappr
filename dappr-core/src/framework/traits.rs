@@ -149,3 +149,30 @@ impl TextSource for &Signal<String> {
         self.clone()
     }
 }
+
+/// A number for a component that can follow a Signal: a plain number for
+/// something fixed, or a `Signal<f64>` to update whenever it changes.
+pub trait NumberSource {
+    /// The number as a Signal.
+    fn into_number_signal(self) -> Signal<f64>;
+}
+impl NumberSource for f64 {
+    fn into_number_signal(self) -> Signal<f64> {
+        Signal::new(self)
+    }
+}
+impl NumberSource for i32 {
+    fn into_number_signal(self) -> Signal<f64> {
+        Signal::new(f64::from(self))
+    }
+}
+impl NumberSource for Signal<f64> {
+    fn into_number_signal(self) -> Signal<f64> {
+        self
+    }
+}
+impl NumberSource for &Signal<f64> {
+    fn into_number_signal(self) -> Signal<f64> {
+        self.clone()
+    }
+}

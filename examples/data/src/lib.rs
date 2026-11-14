@@ -76,22 +76,16 @@ pub fn run() {
                 .sort_by(&sort_by, descending)
         });
 
-        // ---- Numbers derived from the table being shown ------------------
-        let metric = |card: Container, value: Signal<String>| {
-            card.h3("{}", value.clone(), Some(&value.get()));
-        };
-        let [orders_card, units_card, revenue_card] = dapp.columns();
-        metric(
-            orders_card.card_titled("Orders"),
-            shown.map(|table| table.n_rows().to_string()),
+        // ---- Headline figures derived from the table being shown ---------
+        let [orders_col, units_col, revenue_col] = dapp.columns();
+        orders_col.metric("Orders", shown.map(|table| table.n_rows().to_string()));
+        units_col.metric(
+            "Units",
+            shown.map(|table| format_compact(table.column("units").map_or(0.0, DColumn::sum))),
         );
-        metric(
-            units_card.card_titled("Units"),
-            shown.map(|table| table.column("units").map_or(0.0, DColumn::sum).to_string()),
-        );
-        metric(
-            revenue_card.card_titled("Revenue"),
-            shown.map(|table| format!("{:.2}", table.column("revenue").map_or(0.0, DColumn::sum))),
+        revenue_col.metric(
+            "Revenue",
+            shown.map(|table| format_compact(table.column("revenue").map_or(0.0, DColumn::sum))),
         );
 
         dapp.table(&shown);

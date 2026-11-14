@@ -35,6 +35,11 @@ pub fn run() {
             .collect();
         orders.push_column(DColumn::from_values("revenue", revenue));
 
+        let all_orders_average = orders
+            .column("revenue")
+            .and_then(DColumn::mean)
+            .unwrap_or(1.0);
+
         // ---- A fixed line chart -------------------------------------------
         dapp.line_chart(&monthly, "month", &["north", "south", "east"])
             .title("Units sold per month, by region")
@@ -60,6 +65,27 @@ pub fn run() {
             })
         });
 
+        // When the point is one number, say it with a figure, not a chart.
+        let [orders_col, revenue_col, average_col] = dapp.columns();
+        let revenue_total =
+            selected.map(|orders| orders.column("revenue").map_or(0.0, DColumn::sum));
+        orders_col.metric("Orders", selected.map(|orders| orders.n_rows().to_string()));
+        revenue_col.metric("Revenue", revenue_total.map(|total| format_compact(*total)));
+        // How this selection's average order compares with all orders.
+        let average_all = all_orders_average;
+        let average = selected.map(|orders| {
+            orders
+                .column("revenue")
+                .and_then(DColumn::mean)
+                .unwrap_or(0.0)
+        });
+        average_col
+            .metric("Average order", average.map(|a| format!("{a:.2}")))
+            .delta(
+                average.map(move |a| (a / average_all - 1.0) * 100.0),
+                "% vs all products",
+            );
+
         // Dates on the x-axis become a time axis: orders are placed by
         // when they happened, however unevenly they are spread.
         let per_day =
@@ -82,6 +108,17 @@ pub fn run() {
             .title("Order size and revenue")
             .x_label("Units in the order")
             .height(280);
+
+        // Long category names read best on sideways bars, largest first.
+        let by_product = selected.map(|orders| {
+            orders
+                .sum_by("product", &["revenue"])
+                .sort_by("revenue", true)
+        });
+        dapp.bar_chart(by_product, "product", &["revenue"])
+            .horizontal()
+            .title("Revenue by product")
+            .height(240);
 
         // How are order values spread? Most are small, a few are large.
         dapp.histogram(&selected, "revenue")

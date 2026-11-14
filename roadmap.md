@@ -4,8 +4,8 @@ Feb. 09, 2025 -- Davide Del Papa
 
 Updated Nov. 2026. Items marked *(rustream)* existed in the first version of
 this idea, [rustream](https://codeberg.org/davidedelpapa/rustream) (built on
-Yew), and are to be brought over. Ideas parked for later are in
-`backburner.md`.
+Yew). Ideas parked for later, including the rustream items not yet brought
+over, are in `backburner.md`.
 
 ## Features to implement
 
@@ -100,12 +100,12 @@ Data types
 
 - Charts
   - built-in charts from a DTable -- OK (`line_chart`, `area_chart`,
-    `bar_chart` with `.stacked()`, `scatter_chart`, `histogram`), with a time
-    axis for dates
+    `bar_chart` with `.stacked()` and `.horizontal()`, `scatter_chart`,
+    `histogram`), with a time axis for dates (`.date_format()` for forms
+    that could be misread)
+  - a headline figure -- OK (`metric`, with `.delta()`)
   - integrate existing Rust chart crates -- OK, see `examples/chart_crates`
     *(rustream: `poloto` through RawSvg, `plotters` through Canvas)*
-  - still to do: horizontal bars for long category names, a metric / stat
-    tile, dates in formats other than ISO
   - mermaid
 
 - REST APIs (fetch) -- OK for GET (`fetch_table`, `fetch_text`, refetch on a URL signal); POST, headers and authentication are still to do
