@@ -51,11 +51,128 @@ dapp!(dapp, {
   other delimiters, files without headers, strict row lengths. Numbers and
   booleans are recognised; empty fields are missing values.
 - **Columns:** `sum`, `mean`, `min`, `max`, `unique`.
+- **At runtime:** `fetch_table(url)` downloads a table, and
+  `dapp.file_upload("Your data").table()` reads a file the user picks (it
+  stays in the browser). Both give a `Signal<Loadable<DTable>>`:
+  `dapp.load_status(&data)` shows a spinner or the error, and
+  `dapp.table(&data)` shows the table once it is there. Pass `fetch_table` a
+  `Signal<String>` to fetch again whenever the URL changes. See
+  `just example-loading`.
 - **Cargo features:** `csv` and `json` are on by default; `ndarray` adds
   `DTable::from_ndarray`. Use `default-features = false` to drop the parsers
-  you do not need.
+  you do not need (they cost nothing in an app that never calls them, but
+  they do take time to compile).
 
 See `just example-data`.
+
+## Charts
+
+Each chart takes a table, the column for the x-axis, and the columns to plot.
+Like `dapp.table`, they follow a `Signal<DTable>`:
+
+```rust
+dapp.line_chart(&monthly, "month", &["north", "south", "east"])
+    .title("Units sold per month")
+    .y_label("Units");
+
+// The same numbers as parts of a whole.
+dapp.bar_chart(&monthly, "month", &["north", "south", "east"]).stacked();
+
+// Dates on x (2026-03-05, 2026-03, 2026-03-05 14:30) get a time axis.
+dapp.area_chart(&per_day, "date", &["revenue"]);
+
+// Bars compare totals: add up the orders of each region first.
+let by_region = selected.map(|orders| orders.sum_by("region", &["revenue"]));
+dapp.bar_chart(by_region, "region", &["revenue"]);
+
+dapp.scatter_chart(&selected, "units", &["revenue"]);
+
+// How one column's values are spread.
+dapp.histogram(&selected, "revenue").bins(10);
+
+// Long category names: sideways bars, largest first.
+dapp.bar_chart(&by_product, "product", &["revenue"]).horizontal();
+
+// When the point is one number, a figure says it better than a chart.
+dapp.metric("Revenue", format_compact(48_250.0)).delta(12.5, "% vs last month");
+```
+
+| Chart | Use it for |
+|---|---|
+| `line_chart` | change along an ordered x: time, steps |
+| `area_chart` | the same, for an amount; best with one or two columns |
+| `bar_chart` | comparing categories; `.stacked()` for parts of a whole, `.horizontal()` for long names |
+| `scatter_chart` | how two numeric columns relate |
+| `histogram` | how the values of one column are spread |
+| `metric` | one headline number, with its change |
+
+Every chart sizes itself to its place on the page, follows the light or dark
+theme, and comes with a legend (for several series), a read-out that follows
+the pointer or the arrow keys, and a "Show data" table. Colours are assigned in
+a fixed order chosen to stay distinguishable for colour-blind readers, which is
+why a line, area or bar chart draws at most 8 series and a scatter chart 3.
+
+Dates are recognised when they cannot be misread: `2026-03-05`, `05.03.2026`,
+`5 Mar 2026`, with or without a time. For anything else, such as
+`03/05/2026`, say how it is written: `.date_format("%m/%d/%Y")`.
+
+For anything these do not cover, use a plotting crate: `dapp.svg(text)` shows
+SVG output (for example from `poloto`), and `dapp.canvas(w, h)` gives you a
+canvas to draw on (for example with `plotters`). See `just example-charts` and
+`just example-chart-crates`.
+
+## Adding and removing things while the app runs
+
+A page does not have to be built once. Create components later with
+`container.with(..)`, and remove them with `unmount()` or `container.clear()`:
+
+```rust
+let results = dapp.container();
+dapp.button("Search").pressed(move || {
+    results.clear();                       // out with the old
+    results.with(|results| {
+        results.table(matches.map(top_ten)); // in with the new
+    });
+});
+```
+
+What a component needs in order to stay live -- its link to a signal, its event
+listeners, signals derived just for it with `map`, `zip` or `computed!` -- lasts
+exactly as long as the component is on the page, and is freed when it leaves.
+You do not manage subscriptions. Rebuilding a region a thousand times leaves
+nothing behind.
+
+A signal lives while something uses it: a handle you hold, a component showing
+it, or a `Subscription` you kept. See `just example-lifecycle`.
+
+## Markdown and LaTeX
+
+```rust
+dapp.markdown("## Method\n\nWe fit a **linear** model, $y = ax + b$.");
+dapp.latex(r"\hat{a} = \frac{\sum (x_i - \bar{x})(y_i - \bar{y})}{\sum (x_i - \bar{x})^2}");
+
+// Both follow a Signal<String>: a live preview of what the user types.
+let notes = dapp.textarea("Notes (Markdown)");
+dapp.markdown(notes.value());
+
+// text! shorthands, with a template and a signal if you like.
+text!("Total: **{}**", total, _md);
+```
+
+- **Markdown** covers headings, emphasis, lists, links, images, code, tables,
+  task lists and footnotes; `$...$` and `$$...$$` are math.
+- **Safe by default.** HTML written inside Markdown is shown as text, links
+  that would run script go nowhere, and LaTeX cannot add markup, so text from
+  users, files and APIs can be shown as is. `dapp.markdown_with_html` allows
+  HTML, for text that is part of your app.
+- **Nothing to add to `index.html`.** Math is drawn as MathML, which browsers
+  display themselves. It looks best where a math font is installed (Cambria
+  Math, STIX Two Math, Latin Modern Math); most desktops have one.
+- **Cargo features:** `markdown` and `latex`, both on by default. Together
+  they add roughly 300 KB to the wasm of an app that uses them, and nothing to
+  one that does not.
+
+See `just example-prose`.
 
 ## Inputs
 

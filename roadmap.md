@@ -4,8 +4,8 @@ Feb. 09, 2025 -- Davide Del Papa
 
 Updated Nov. 2026. Items marked *(rustream)* existed in the first version of
 this idea, [rustream](https://codeberg.org/davidedelpapa/rustream) (built on
-Yew), and are to be brought over. Ideas parked for later are in
-`backburner.md`.
+Yew). Ideas parked for later, including the rustream items not yet brought
+over, are in `backburner.md`.
 
 ## Features to implement
 
@@ -69,26 +69,27 @@ Forms
 
 - Use of componnts outside of forms
 
-- File upload (load a CSV or JSON picked by the user)
+- File upload (load a CSV or JSON picked by the user) -- OK (`file_upload`)
 
 Reactivity
 
 - Derived values -- OK (`Signal::map`, `Signal::zip`, `computed!`)
 
-- Subscriptions tied to a component's lifetime, so derived signals created
-  in callbacks do not leak
+- Subscriptions tied to a component's lifetime -- OK: what a component
+  needs lasts while it is on the page (`unmount`, `clear`), and derived
+  signals are freed when unused
 
 Data types
 
 - RawHtml -- OK
 
-- RawSvg *(rustream)*
+- RawSvg -- OK (`dapp.svg`) *(rustream)*
 
-- Canvas *(rustream: `<Canvas>` + `<CanvasElement>`)*
+- Canvas -- OK (`dapp.canvas`, `Canvas::draw_on`) *(rustream: `<Canvas>` + `<CanvasElement>`)*
 
-- Markdown *(rustream: via `pulldown-cmark`)*
+- Markdown -- OK (`dapp.markdown`, `text!(.., _md)`; safe by default) *(rustream: via `pulldown-cmark`)*
 
-- LaTeX *(rustream: via `katex`)*
+- LaTeX -- OK (`dapp.latex`, `text!(.., _latex)`, math in Markdown), as MathML via `pulldown-latex` instead of KaTeX. Still to do: an optional bundled math font, for machines that have none *(rustream: via `katex`)*
 
 - Csv (Tsv, etc) -- OK (`DTable::from_csv`, `from_tsv`, `CsvOptions`) *(rustream: delimiter / headers / flexible / trim options)*
 
@@ -99,15 +100,20 @@ Data types
 - Table view of a DTable -- OK *(rustream: `<ViewTable>`, `<ViewCsv>`)*
 
 - Charts
-  - integrate existing Rust chart crates first *(rustream: `poloto` through
-    RawSvg, `plotters` through Canvas)*
+  - built-in charts from a DTable -- OK (`line_chart`, `area_chart`,
+    `bar_chart` with `.stacked()` and `.horizontal()`, `scatter_chart`,
+    `histogram`), with a time axis for dates (`.date_format()` for forms
+    that could be misread)
+  - a headline figure -- OK (`metric`, with `.delta()`)
+  - integrate existing Rust chart crates -- OK, see `examples/chart_crates`
+    *(rustream: `poloto` through RawSvg, `plotters` through Canvas)*
   - mermaid
 
-- REST APIs (fetch)
+- REST APIs (fetch) -- OK for GET (`fetch_table`, `fetch_text`, refetch on a URL signal); POST, headers and authentication are still to do
 
 Packaging
 
 - One Cargo feature per heavy component (csv, json, markdown, latex, ...) --
-  started (`csv`, `json`, `ndarray`, `sanitizehtml`), so
+  started (`csv`, `json`, `markdown`, `latex`, `ndarray`, `sanitizehtml`), so
   apps only pay in wasm size for what they use *(rustream; its README notes
   3-4 MB wasm files as the problem this addresses)*

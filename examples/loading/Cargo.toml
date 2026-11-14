@@ -1,0 +1,14 @@
+[package]
+name = "loading"
+version = "0.1.0"
+edition = "2021"
+authors = ["Davide Del Papa"]
+description = "Dappr example: load data at runtime, from a URL or from a file the user picks"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+dappr = { path = "../../" }
+wasm-bindgen.workspace = true

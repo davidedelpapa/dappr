@@ -498,6 +498,48 @@ impl DTable {
         self.with_rows(&indices)
     }
 
+    /// A new table with one row per distinct value of `key`, holding the
+    /// sum of each of `columns` over the rows that share it. Groups come in
+    /// order of first appearance; values that are not numbers count as zero.
+    /// This is the usual step before a bar chart.
+    ///
+    /// ```
+    /// # use dappr_core::data::table::DTable;
+    /// let mut orders = DTable::with_columns(&["region", "units"]);
+    /// orders.push_row(("North", 2));
+    /// orders.push_row(("South", 5));
+    /// orders.push_row(("North", 3));
+    /// let totals = orders.sum_by("region", &["units"]);
+    /// assert_eq!(totals.n_rows(), 2);
+    /// assert_eq!(totals.row(0).unwrap().number("units"), Some(5.0));
+    /// ```
+    pub fn sum_by(&self, key: &str, columns: &[&str]) -> DTable {
+        let mut titles = vec![key];
+        titles.extend(columns.iter().filter(|name| self.column(name).is_some()));
+        let mut out = DTable::with_columns(&titles);
+        out.title = self.title.clone();
+        let Some(key_column) = self.column(key) else {
+            return out;
+        };
+        let groups = key_column.unique();
+        for group in groups {
+            let mut row = vec![group.clone()];
+            for title in &titles[1..] {
+                let cells = self.column(title).map(DColumn::cells).unwrap_or(&[]);
+                let sum: f64 = key_column
+                    .cells
+                    .iter()
+                    .zip(cells)
+                    .filter(|(k, _)| **k == group)
+                    .filter_map(|(_, cell)| cell.as_f64())
+                    .sum();
+                row.push(Cell::Number(sum));
+            }
+            out.push_row(row);
+        }
+        out
+    }
+
     /// A new table with the first `n` rows.
     pub fn head(&self, n: usize) -> DTable {
         let indices: Vec<usize> = (0..self.n_rows().min(n)).collect();
@@ -681,6 +723,17 @@ mod tests {
         let by_text = cities().sort_by("city", false);
         assert_eq!(names(&by_text), vec!["Lyon", "Milan", "Paris", "Rome"]);
         assert_eq!(cities().sort_by("nope", false), cities());
+    }
+
+    #[test]
+    fn sum_by_groups_in_first_seen_order() {
+        let totals = cities().sum_by("country", &["population", "nope"]);
+        assert_eq!(totals.headers(), vec!["country", "population"]);
+        assert_eq!(totals.get(0, "country"), Some(&Cell::from("Italy")));
+        assert!((totals.row(0).unwrap().number("population").unwrap() - 4.12).abs() < 1e-9);
+        // Lyon's missing population counts as zero.
+        assert_eq!(totals.row(1).unwrap().number("population"), Some(2.1));
+        assert_eq!(cities().sum_by("nope", &["population"]).n_rows(), 0);
     }
 
     #[test]

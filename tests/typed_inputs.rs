@@ -118,6 +118,34 @@ fn test_slider_respects_range_and_shows_its_value() {
     assert_eq!(shown(), "120");
 }
 
+/// The control and the value must always agree, whatever the range and
+/// step, and in whatever order they are given.
+#[wasm_bindgen_test]
+fn test_slider_value_and_control_agree_with_fractional_ranges() {
+    let dapp = Dapp::new();
+    let shown = |field: &Field<f64>| as_input(field.control()).value_as_number();
+
+    // Not on the default step of 1: must not be moved to 1.3.
+    let sigma = dapp.slider("Sigma", 0.3, 2.0, 1.0).step(0.1);
+    assert_eq!(sigma.get(), 1.0);
+    assert_eq!(shown(&sigma), 1.0);
+
+    // No step given, fractional start: kept as is.
+    let opacity = dapp.slider("Opacity", 0.0, 1.0, 0.8);
+    assert_eq!(opacity.get(), 0.8);
+    assert_eq!(shown(&opacity), 0.8);
+
+    // A step the start does not sit on: the value follows the control.
+    let coarse = dapp.slider("Coarse", 0.0, 10.0, 3.0).step(2.0);
+    assert_eq!(shown(&coarse), coarse.get());
+    assert_eq!(coarse.get() % 2.0, 0.0);
+
+    // Narrowing the range clamps both.
+    let capped = dapp.slider("Capped", 0.0, 100.0, 80.0).max(50.0);
+    assert_eq!(capped.get(), 50.0);
+    assert_eq!(shown(&capped), 50.0);
+}
+
 #[wasm_bindgen_test]
 fn test_checkbox_and_switch_give_bool() {
     let dapp = Dapp::new();

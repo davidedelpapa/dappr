@@ -1,0 +1,14 @@
+[package]
+name = "charts"
+version = "0.1.0"
+edition = "2021"
+authors = ["Davide Del Papa"]
+description = "Dappr example: line, bar and scatter charts that follow the inputs"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+dappr = { path = "../../" }
+wasm-bindgen.workspace = true

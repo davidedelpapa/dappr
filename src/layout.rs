@@ -69,6 +69,32 @@ impl Component for Container {
 
 /// Layouts
 impl Dapp {
+    /// Empties this container (or the page): removes everything in it, and
+    /// ends what was tied to those components -- their links to Signals,
+    /// their event listeners, and Signals derived only for them.
+    ///
+    /// This is the way to rebuild part of a page: clear the container, then
+    /// add the new content.
+    ///
+    /// ```no_run
+    /// # use dappr::prelude::*;
+    /// # let dapp = Dapp::new();
+    /// let results = dapp.container();
+    /// let search = dapp.button("Search");
+    /// search.pressed(move || {
+    ///     results.clear();
+    ///     results.p_static("Fresh results, replacing the old ones.");
+    /// });
+    /// ```
+    pub fn clear(&self) {
+        while let Some(child) = self.root.first_element_child() {
+            child.remove();
+            dappr_core::framework::dom::release(&child);
+        }
+        // Whatever is left is loose text.
+        self.root.set_text_content(None);
+    }
+
     /// Appends a new element with the given tag and returns it as a Container.
     fn child_container(&self, tag: &str) -> Container {
         let el = create_element(tag);

@@ -1,32 +1,29 @@
 //! # Component lifecycle example
 //!
-//! This example exists to tie together, in one place, everything that
-//! changed about styles and lifecycle recently:
+//! Most apps build their page once. This one keeps adding and removing
+//! components while it runs, which shows three things:
 //!
-//! 1. **Styles**: `style!` below is a *pure* macro. It writes nothing to
-//!    disk: it generates a `notification` module holding the scoped class
-//!    name (`notification::chip == "notification-chip"`) and the matching
-//!    scoped CSS (`notification::CSS`). `dapp.style(notification::CSS)`
-//!    adds that CSS to the page. No `build.rs`, no stylesheet link in
-//!    `index.html`; Dappr's baseline look (Pico) is added by Dappr itself.
+//! 1. **Scoped styles**: `style!` below generates a `notification` module
+//!    holding the scoped class name (`notification::chip ==
+//!    "notification-chip"`) and the matching CSS (`notification::CSS`).
+//!    `dapp.style(notification::CSS)` adds that CSS to the page.
 //!
-//! 2. **Building components after startup**: every previous example only
-//!    ever creates components once, up front, inside the `dapp!` block.
-//!    This one creates new components later, from inside a button's click
-//!    handler -- by opening a new `dapp!` block inside the handler
-//!    (see the comment on `post_button.pressed` below for why).
+//! 2. **Building components after startup**: new components are created
+//!    from inside a button's click handler, by opening a `dapp!` block in
+//!    the handler (see the comment on `post_button.pressed` for why).
 //!
-//! 3. **Detaching components**: clicking a notification removes it, for
-//!    real -- both the visible element (`Component::unmount`) and its own
-//!    click listener (dropping the `Subscription` `add_event_listener`
-//!    returns). Previously, listeners were `.forget()`'d unconditionally
-//!    and could never be removed; this example is the one place in the
-//!    whole crate that deliberately does NOT `.detach()` a `Subscription`,
-//!    specifically to show the other half of that API.
+//! 3. **Removing components**: clicking a notification calls `unmount()`
+//!    on it. That takes it off the page *and* ends everything that was
+//!    tied to it: its click listener, its link to the `count` signal, and
+//!    the signal derived just for its label. Nothing is left behind,
+//!    however many notifications come and go. "Clear all" does the same
+//!    for a whole container with `clear()`.
+//!
+//! You never manage those subscriptions yourself: they last exactly as
+//! long as the component is on the page.
 
 use dappr::prelude::*;
 use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::spawn_local;
 
 // Generates `notification::chip` (the class name) and `notification::CSS`
 // (the CSS below, with `.chip` rewritten to `.notification-chip`).
@@ -65,6 +62,10 @@ listener -- it isn't just hidden.",
         );
 
         let post_button = dapp.button("Post notification");
+        let clear_button = dapp.button("Clear all");
+        // Notifications go in their own container, so they can be cleared
+        // together.
+        let board = Rc::new(dapp.container());
 
         // NOTE on why this closure opens its own `dapp!` block, instead of
         // capturing `dapp`:
@@ -73,62 +74,44 @@ listener -- it isn't just hidden.",
         // this `dapp!` block only* -- it can't be moved into a `'static`
         // closure that outlives the block (which this one does: it keeps
         // creating new notifications every time the button is clicked, long
-        // after this block has finished running). A nested `dapp!` borrows
-        // the same global Dapp again, at the moment it is actually needed.
-        // `text!` does the same thing internally.
-        let count_for_click = count.clone();
+        // after this block has finished running). A container, on the other
+        // hand, is a handle you can keep: `board.with(..)` targets it, and
+        // inside it `text!` and `dapp!` add to the board.
+        let posted = Signal::new(0usize);
+        let (count_for_post, board_for_post) = (count.clone(), Rc::clone(&board));
         post_button.pressed(move || {
-            let n = count_for_click.get() + 1;
-            count_for_click.set(n);
-            let label = format!("Notification #{n} \u{2014} click to dismiss");
+            let number = posted.get() + 1;
+            posted.set(number);
+            count_for_post.set(count_for_post.get() + 1);
 
-            dapp!(dapp, {
-                let notification = dapp.button(&label);
-
-                notification.add_class(notification::chip);
-
-                // We manage this Subscription ourselves -- rather than
-                // `Button::pressed`, which always `.detach()`s internally
-                // and gives no way back -- specifically so we CAN drop it
-                // when the notification is dismissed.
-                //
-                // It's held in an `Rc<RefCell<Option<Subscription>>>`
-                // because the closure that eventually drops it is the
-                // *same* closure this Subscription owns (see below for why
-                // that needs an extra step, not a direct `drop(sub)` here).
-                let held_subscription: Rc<RefCell<Option<Subscription>>> =
-                    Rc::new(RefCell::new(None));
-                let held_subscription_for_click = Rc::clone(&held_subscription);
-
-                let count_for_dismiss = count_for_click.clone();
-                let element_for_dismiss = notification.get_element().clone();
-
-                let subscription = notification.add_event_listener("click", move |_event| {
-                    // 1. Remove the element from the page right away. This
-                    //    is safe to do synchronously, from within its own
-                    //    click handler -- a DOM node removing itself during
-                    //    its own event dispatch is a well-supported, common
-                    //    pattern in the browser.
-                    element_for_dismiss.remove();
-                    count_for_dismiss.set(count_for_dismiss.get().saturating_sub(1));
-
-                    // 2. Do NOT drop our own Subscription synchronously,
-                    //    right here. We are currently executing *inside*
-                    //    the very closure that this Subscription owns --
-                    //    dropping it now would free that closure's captured
-                    //    environment while it's still running on the call
-                    //    stack. Instead, defer the actual drop to a
-                    //    microtask via `spawn_local`: by the time that runs,
-                    //    this click handler has already returned, so
-                    //    there's nothing unsafe about tearing it down.
-                    let to_drop = Rc::clone(&held_subscription_for_click);
-                    spawn_local(async move {
-                        to_drop.borrow_mut().take(); // dropped here
-                    });
+            board_for_post.with(|board| {
+                // Each notification is a small container holding a button.
+                let chip = board.container();
+                let active = count_for_post.clone();
+                // A signal derived only for this label: it follows `count`
+                // while the notification is shown, and is freed with it.
+                let label = active.map(move |active| {
+                    format!("Notification #{number} of {active} \u{2014} click to dismiss")
                 });
+                let button = chip.button(&label.get());
+                button.add_class(notification::chip);
+                button.bind_signal(label, None, None);
 
-                *held_subscription.borrow_mut() = Some(subscription);
+                // Clicking removes the whole notification. `unmount` ends
+                // its listener and its link to `count` as well -- and it is
+                // fine to do that from inside the very click being handled.
+                let count_for_dismiss = count_for_post.clone();
+                button.pressed(move || {
+                    chip.unmount();
+                    count_for_dismiss.set(count_for_dismiss.get().saturating_sub(1));
+                });
             });
+        });
+
+        let count_for_clear = count.clone();
+        clear_button.pressed(move || {
+            board.clear();
+            count_for_clear.set(0);
         });
     });
 }

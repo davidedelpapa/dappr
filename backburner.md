@@ -28,3 +28,77 @@ next to the columns and sidebar rules, using Pico's variables
 - API shape: same const-generic pattern as `columns`, so
   `let [chart, data] = dapp.tabs(["Chart", "Data"]);`.
 - Accessibility: arrow-key navigation between tabs.
+
+## From rustream, not yet brought over
+
+Rustream (https://codeberg.org/davidedelpapa/rustream) was the first version
+of this project, built on Yew. Most of it now exists in Dappr in some form
+(tables, CSV, JSON, Markdown, LaTeX, SVG, canvas, cards, sections). What is
+still missing:
+
+### Navigation bar
+
+**What rustream had:** `<NavBar sticky={true}>` holding a `<Logo>` and a
+`<NavMenu>` of links, collapsing into a menu button on narrow screens
+(`src/components/layout.rs`, styles in `vendor/milligram.nav.css`).
+
+**Sketch for Dappr:** `dapp.navbar("App name")` returning a `Container` for
+the links, placed above the sidebar and the page. Pico already styles
+`<nav><ul>...</ul></nav>`; the collapse on narrow screens and the sticky
+option need a few rules in `dappr.css`. A navbar mostly makes sense together
+with several pages, which Dappr does not have yet -- decide that first.
+
+### Page with an automatic table of contents
+
+**What rustream had:** `<Page>` collected every `<Title>` and `<Header>`
+inside it (id, text, level) into a context, and `<Toc>` rendered that list as
+links (`src/components/layout.rs`: `PageState`, `TOCEntry`, `PageAction`).
+
+**Sketch for Dappr:** `dapp.toc()` returning a component that lists the
+headings of the page (or of a container), each linking to its heading. Give
+headings an `id` derived from their text when they are created, and keep the
+list in a `Signal` so headings added later appear too. A natural home for it
+is the sidebar. Markdown headings should be included.
+
+### A pretty-printed JSON view
+
+**What rustream had:** `<ViewJson>` showed a parsed JSON value indented in a
+`<pre>` (`src/components/dataview.rs`).
+
+**Sketch for Dappr:** `dapp.json(text)` -- indented, in a `<pre><code>`, with
+a clear message when the text is not valid JSON. Streamlit's `st.json` also
+lets the reader collapse objects and arrays; nested `<details>` would do it.
+
+### A generic data view
+
+**What rustream had:** `<DataView<T>>` showed any `Display` value in a `<pre>`
+or a `<div>`.
+
+**Probably not needed:** `text!` and `dapp.text` already show any `Display`
+value. Listed so it is a decision, not an oversight.
+
+## Other things parked along the way
+
+- **A bundled math font** for LaTeX, as an opt-in Cargo feature, for viewers
+  whose machine has none (about 400 KB). Without one, brackets do not stretch.
+- **POST, headers and authentication** for `fetch_table` / `fetch_text`
+  (GET only today).
+- **A sparkline in the metric tile**, showing the recent trend.
+- **Syntax highlighting** for code blocks in Markdown.
+- **Removing `scan_dir` / `bundle`** from `dappr-styles`: nothing uses them
+  since styles are injected at runtime.
+
+## Mermaid diagrams
+
+**What:** `dapp.mermaid(text)`, the counterpart of Streamlit's Mermaid
+components. Parked until a renderer is chosen (measured Nov 2026):
+
+| Option | Wasm cost (smallest build) | State |
+|---|---|---|
+| `mermaid-rs-renderer` 0.3.1 (MIT) | about 2.0 MB, 0.73 MB gzipped, all diagram types | Panics in the browser on `std::time::Instant`; works once three imports are swapped for `web-time`, so it needs a fork or an upstream fix. Accepts invalid input silently; emits `javascript:` links from `click`. Plain SVG, easy to sanitise. |
+| `merman` 0.10.0 (MIT / Apache-2.0) | about 4.8 MB, 1.8 MB gzipped, flowchart only; more per diagram type | Works in the browser as is, closest to real Mermaid, proper errors. Labels are HTML in `<foreignObject>`, harder to sanitise. Keep its ELK layout feature off (EPL-2.0). |
+| Mermaid's own JavaScript, loaded on first use | none | Reference rendering, but needs a CDN or a copy served with the app, which breaks "nothing to add to `index.html`". Not tested. |
+| `flowmaid` | not measured | GPL-3.0: does not fit Dappr's MIT licence. |
+
+Whichever Rust crate is used, its SVG must go through an allowlist before it
+reaches the page, as LaTeX output does.

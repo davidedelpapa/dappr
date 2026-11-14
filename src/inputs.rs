@@ -14,6 +14,7 @@
 //! | [`switch`](Dapp::switch) | on/off toggle | `bool` |
 //! | [`select`](Dapp::select) | dropdown | the chosen option |
 //! | [`radio`](Dapp::radio) | radio buttons | the chosen option |
+//! | [`file_upload`](Dapp::file_upload) | file picker | `Option<UploadedFile>` |
 //!
 //! ```no_run
 //! use dappr::prelude::*;
@@ -30,7 +31,7 @@
 //! }
 //! ```
 use crate::app::Dapp;
-use dappr_core::components::field::Field;
+use dappr_core::components::field::{Field, UploadedFile};
 use dappr_core::framework::traits::Component;
 use std::fmt::Display;
 
@@ -124,5 +125,23 @@ impl Dapp {
         T: Display + Clone + PartialEq + 'static,
     {
         self.add_field(Field::radio(label, options))
+    }
+
+    /// A file picker, to let the user bring their own data. Chain
+    /// `.accept(".csv,.json")` to suggest file types.
+    ///
+    /// The file is read in the browser and never leaves it. Use `.table()`
+    /// on the field to get it as a table:
+    ///
+    /// ```no_run
+    /// # use dappr::prelude::*;
+    /// # let dapp = Dapp::new();
+    /// let upload = dapp.file_upload("Your data").accept(".csv,.tsv,.json");
+    /// let data = upload.table();
+    /// dapp.load_status(&data); // says why, if the file cannot be read
+    /// dapp.table(&data);
+    /// ```
+    pub fn file_upload(&self, label: &str) -> Field<Option<UploadedFile>> {
+        self.add_field(Field::file(label))
     }
 }

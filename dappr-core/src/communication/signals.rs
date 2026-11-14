@@ -1,11 +1,23 @@
 use crate::communication::subscription::Subscription;
 use std::cell::{Cell, RefCell};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 
 type Callback<T> = Rc<RefCell<Box<dyn FnMut(&T)>>>;
-type Callbacks<T> = Rc<RefCell<Vec<(u64, Callback<T>)>>>;
+
+/// What every handle to one Signal shares.
+struct Inner<T> {
+    value: RefCell<T>,
+    callbacks: RefCell<Vec<(u64, Callback<T>)>>,
+    next_id: Cell<u64>,
+    /// Bumped by every `set`, so a `set` can tell that a newer one happened
+    /// while it was still notifying.
+    version: Cell<u64>,
+    /// Subscriptions this Signal owns: for a derived Signal, the ones that
+    /// feed it from its sources. They end when the Signal does.
+    kept: RefCell<Vec<Subscription>>,
+}
 
 /// The Signal struct provides reacivity to the Components.
 ///
@@ -14,24 +26,67 @@ type Callbacks<T> = Rc<RefCell<Vec<(u64, Callback<T>)>>>;
 /// while the Dispatcher is a wrapper around a list of callbacks that can be dispatched.
 ///
 /// The Signal is used to wrap around a type and update and sync all components with the new value.
-#[derive(Clone)]
+///
+/// ## How long a Signal lives
+///
+/// Cloning a Signal gives another handle to the same value. The Signal
+/// lasts while at least one handle exists, or while something is subscribed
+/// to it (a [`Subscription`] counts as a handle).
+///
+/// A Signal derived from others ([`map`](Signal::map), [`zip`](Signal::zip),
+/// `computed!`) keeps its sources alive, never the other way round. So when
+/// the last thing using a derived Signal goes away -- a component removed
+/// from the page, a handle dropped -- the derived Signal stops listening to
+/// its sources and is freed, and nothing is left behind on them.
 pub struct Signal<T> {
-    value: Rc<RefCell<T>>,
-    callbacks: Callbacks<T>,
-    next_id: Rc<RefCell<u64>>,
-    /// Bumped by every `set`, so a `set` can tell that a newer one happened
-    /// while it was still notifying.
-    version: Rc<Cell<u64>>,
+    inner: Rc<Inner<T>>,
+}
+
+impl<T> Clone for Signal<T> {
+    fn clone(&self) -> Self {
+        Signal {
+            inner: Rc::clone(&self.inner),
+        }
+    }
+}
+
+/// A handle to a Signal that does not keep it alive. Get one with
+/// [`Signal::downgrade`]; turn it back into a Signal with
+/// [`upgrade`](WeakSignal::upgrade), which gives `None` once the Signal is
+/// gone.
+///
+/// This is how a callback on one Signal can update another without tying
+/// their lifetimes together.
+pub struct WeakSignal<T> {
+    inner: Weak<Inner<T>>,
+}
+
+impl<T> Clone for WeakSignal<T> {
+    fn clone(&self) -> Self {
+        WeakSignal {
+            inner: Weak::clone(&self.inner),
+        }
+    }
+}
+
+impl<T> WeakSignal<T> {
+    /// The Signal, if it still exists.
+    pub fn upgrade(&self) -> Option<Signal<T>> {
+        self.inner.upgrade().map(|inner| Signal { inner })
+    }
 }
 
 impl<T: Clone + 'static> Signal<T> {
     /// Signal constructor
     pub fn new(initial: T) -> Self {
         Signal {
-            value: Rc::new(RefCell::new(initial)),
-            callbacks: Rc::new(RefCell::new(vec![])),
-            next_id: Rc::new(RefCell::new(0)),
-            version: Rc::new(Cell::new(0)),
+            inner: Rc::new(Inner {
+                value: RefCell::new(initial),
+                callbacks: RefCell::new(Vec::new()),
+                next_id: Cell::new(0),
+                version: Cell::new(0),
+                kept: RefCell::new(Vec::new()),
+            }),
         }
     }
 
@@ -52,20 +107,21 @@ impl<T: Clone + 'static> Signal<T> {
     ///   outer `set` then stops notifying, so no callback is handed the
     ///   older value after the newer one.
     pub fn set(&self, new_value: T) {
-        *self.value.borrow_mut() = new_value.clone();
-        let version = self.version.get().wrapping_add(1);
-        self.version.set(version);
+        let inner = &self.inner;
+        *inner.value.borrow_mut() = new_value.clone();
+        let version = inner.version.get().wrapping_add(1);
+        inner.version.set(version);
 
         // Work on a snapshot, with no borrow of the list held while user
         // code runs, so callbacks can subscribe/unsubscribe freely.
-        let snapshot: Vec<(u64, Callback<T>)> = self.callbacks.borrow().clone();
+        let snapshot: Vec<(u64, Callback<T>)> = inner.callbacks.borrow().clone();
         for (id, callback) in snapshot {
-            if self.version.get() != version {
+            if inner.version.get() != version {
                 // A callback called `set` again: that newer `set` has
                 // already notified everyone with the newer value.
                 break;
             }
-            let still_subscribed = self
+            let still_subscribed = inner
                 .callbacks
                 .borrow()
                 .iter()
@@ -80,36 +136,84 @@ impl<T: Clone + 'static> Signal<T> {
             };
         }
     }
+
     /// Get the current value of the Signal
     pub fn get(&self) -> T {
-        self.value.borrow().clone()
+        self.inner.value.borrow().clone()
     }
 
     /// Subscribe a new callback to the Signal.
     ///
     /// Returns a [`Subscription`]: drop it to unsubscribe this callback, or
-    /// call `.detach()` to keep it subscribed for the remainder of the program
+    /// call `.detach()` to keep it subscribed for the remainder of the program.
+    ///
+    /// While the Subscription exists, so does the Signal -- which matters
+    /// for a derived Signal nobody else holds:
+    /// `total.map(format).subscribe(show)` keeps working for as long as the
+    /// returned Subscription is kept.
     #[must_use = "dropping the returned Subscription immediately unsubscribes this callback -- \
                   see Subscription's docs"]
     pub fn subscribe<F>(&self, callback: F) -> Subscription
     where
         F: FnMut(&T) + 'static,
     {
-        let id = {
-            let mut next_id = self.next_id.borrow_mut();
-            let id = *next_id;
-            *next_id += 1;
-            id
-        };
+        let inner = &self.inner;
+        let id = inner.next_id.get();
+        inner.next_id.set(id + 1);
         let callback: Box<dyn FnMut(&T)> = Box::new(callback);
-        self.callbacks
+        inner
+            .callbacks
             .borrow_mut()
             .push((id, Rc::new(RefCell::new(callback))));
 
-        let callbacks = Rc::clone(&self.callbacks);
-        Subscription::new(move || {
-            callbacks.borrow_mut().retain(|(cb_id, _)| *cb_id != id);
+        // The Subscription holds the Signal (a strong handle), so the
+        // Signal cannot disappear from under a live subscription.
+        let signal = self.clone();
+        Subscription::new_owning(move || {
+            // Take the callback out before dropping it: dropping may run
+            // code (the callback's own captures) that touches this list.
+            let removed: Vec<(u64, Callback<T>)> = {
+                let mut callbacks = signal.inner.callbacks.borrow_mut();
+                let (gone, kept) = callbacks.drain(..).partition(|(cb_id, _)| *cb_id == id);
+                *callbacks = kept;
+                gone
+            };
+            drop(removed);
         })
+    }
+
+    /// A handle that does not keep this Signal alive. See [`WeakSignal`].
+    pub fn downgrade(&self) -> WeakSignal<T> {
+        WeakSignal {
+            inner: Rc::downgrade(&self.inner),
+        }
+    }
+
+    /// Makes `subscription` last exactly as long as this Signal: it ends
+    /// when the last handle to the Signal is dropped.
+    ///
+    /// This is the building block for a Signal that is fed by another. The
+    /// subscription on the source is kept *by the derived Signal*, and its
+    /// callback reaches the derived Signal through a [`WeakSignal`], so the
+    /// source never keeps the derived Signal alive:
+    ///
+    /// ```
+    /// # use dappr_core::prelude::*;
+    /// let celsius = Signal::new(20.0);
+    /// let fahrenheit = Signal::new(68.0);
+    /// let target = fahrenheit.downgrade();
+    /// fahrenheit.keep(celsius.subscribe(move |c| {
+    ///     if let Some(fahrenheit) = target.upgrade() {
+    ///         fahrenheit.set(c * 9.0 / 5.0 + 32.0);
+    ///     }
+    /// }));
+    /// celsius.set(100.0);
+    /// assert_eq!(fahrenheit.get(), 212.0);
+    /// ```
+    ///
+    /// ([`map`](Signal::map) does exactly this for you.)
+    pub fn keep(&self, subscription: Subscription) {
+        self.inner.kept.borrow_mut().push(subscription);
     }
 
     /// A new Signal whose value is always `f` applied to this one's.
@@ -122,16 +226,21 @@ impl<T: Clone + 'static> Signal<T> {
     /// text!("That is {} F", fahrenheit);
     /// ```
     ///
-    /// The derived Signal follows this one for as long as this one exists.
+    /// The derived Signal follows this one for as long as the derived
+    /// Signal is in use. When nothing holds or subscribes to it any more,
+    /// it stops listening and is freed.
     pub fn map<U, F>(&self, f: F) -> Signal<U>
     where
         U: Clone + 'static,
         F: Fn(&T) -> U + 'static,
     {
         let derived = Signal::new(f(&self.get()));
-        let derived_in = derived.clone();
-        self.subscribe(move |value| derived_in.set(f(value)))
-            .detach();
+        let target = derived.downgrade();
+        derived.keep(self.subscribe(move |value| {
+            if let Some(derived) = target.upgrade() {
+                derived.set(f(value));
+            }
+        }));
         derived
     }
 
@@ -145,42 +254,39 @@ impl<T: Clone + 'static> Signal<T> {
     pub fn zip<U: Clone + 'static>(&self, other: &Signal<U>) -> Signal<(T, U)> {
         let derived = Signal::new((self.get(), other.get()));
 
-        let (derived_in, other_in) = (derived.clone(), other.clone());
-        self.subscribe(move |value| derived_in.set((value.clone(), other_in.get())))
-            .detach();
-        let (derived_in, self_in) = (derived.clone(), self.clone());
-        other
-            .subscribe(move |value| derived_in.set((self_in.get(), value.clone())))
-            .detach();
+        let (target, other_in) = (derived.downgrade(), other.clone());
+        derived.keep(self.subscribe(move |value| {
+            if let Some(derived) = target.upgrade() {
+                derived.set((value.clone(), other_in.get()));
+            }
+        }));
+        let (target, self_in) = (derived.downgrade(), self.clone());
+        derived.keep(other.subscribe(move |value| {
+            if let Some(derived) = target.upgrade() {
+                derived.set((self_in.get(), value.clone()));
+            }
+        }));
         derived
     }
 
-    /// The number of currently-live subscriptions. Mostly useful for tests
-    /// asserting that `Subscription`s actually detach.
-    #[cfg(test)]
-    pub(crate) fn subscriber_count(&self) -> usize {
-        self.callbacks.borrow().len()
+    /// The number of callbacks currently subscribed. Useful in tests, to
+    /// check that something stopped listening.
+    pub fn subscriber_count(&self) -> usize {
+        self.inner.callbacks.borrow().len()
     }
 
     /// Update the Signal after a delay in milliseconds
     pub fn update_after_delay(&self, new_value: T, delay_ms: i32) {
         let signal = self.clone();
-        wasm_bindgen_futures::spawn_local(async move {
-            let closure = Closure::wrap(Box::new(move || {
-                signal.set(new_value.clone());
-            }) as Box<dyn FnMut()>);
-
-            web_sys::window()
-                .expect("Could not find the window")
-                .set_timeout_with_callback_and_timeout_and_arguments_0(
-                    closure.as_ref().unchecked_ref(),
-                    delay_ms,
-                )
-                .expect("Failed to set timeout");
-
-            // Prevent the closure from being dropped prematurely
-            closure.forget();
-        });
+        // A one-shot closure: freed by the browser side once it has run.
+        let closure = Closure::once_into_js(move || signal.set(new_value));
+        web_sys::window()
+            .expect("Could not find the window")
+            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                closure.unchecked_ref(),
+                delay_ms,
+            )
+            .expect("Failed to set timeout");
     }
 }
 
@@ -351,5 +457,126 @@ mod tests {
         quantity.set(10);
         price.set(1.0);
         assert_eq!(*seen.borrow(), vec![25.0, 10.0]);
+    }
+
+    // ---- Lifetimes ----
+
+    /// A derived Signal nobody uses any more leaves nothing on its source.
+    #[test]
+    fn test_dropping_a_derived_signal_unsubscribes_from_its_source() {
+        let source = Signal::new(1);
+        assert_eq!(source.subscriber_count(), 0);
+        let doubled = source.map(|v| v * 2);
+        assert_eq!(source.subscriber_count(), 1);
+        // Another handle keeps it going.
+        let handle = doubled.clone();
+        drop(doubled);
+        source.set(5);
+        assert_eq!(handle.get(), 10);
+        assert_eq!(source.subscriber_count(), 1);
+        drop(handle);
+        assert_eq!(source.subscriber_count(), 0);
+        source.set(6); // nothing left to notify, and nothing breaks
+    }
+
+    /// The scenario that used to leak: deriving again and again from a
+    /// long-lived Signal, as a callback that rebuilds part of a page does.
+    #[test]
+    fn test_deriving_repeatedly_does_not_accumulate() {
+        let source = Signal::new(0);
+        let other = Signal::new(0);
+        for round in 0..100 {
+            let mapped = source.map(|v| v + 1);
+            let zipped = source.zip(&other).map(|(a, b)| a + b);
+            source.set(round);
+            assert_eq!(mapped.get(), round + 1);
+            assert_eq!(zipped.get(), round);
+        }
+        assert_eq!(source.subscriber_count(), 0);
+        assert_eq!(other.subscriber_count(), 0);
+    }
+
+    /// A subscription keeps the whole chain behind it alive, and releases
+    /// all of it when it ends.
+    #[test]
+    fn test_a_subscription_keeps_a_derived_chain_alive() {
+        let source = Signal::new(1);
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let seen_c = Rc::clone(&seen);
+        // No handle to either derived Signal is kept: only the Subscription.
+        let subscription = source
+            .map(|v| v * 10)
+            .map(|v| v + 1)
+            .subscribe(move |v| seen_c.borrow_mut().push(*v));
+        source.set(2);
+        source.set(3);
+        assert_eq!(*seen.borrow(), vec![21, 31]);
+        assert_eq!(source.subscriber_count(), 1);
+
+        drop(subscription);
+        assert_eq!(source.subscriber_count(), 0);
+        source.set(4);
+        assert_eq!(*seen.borrow(), vec![21, 31]);
+    }
+
+    /// `.detach()` means "for the rest of the program", derived chain included.
+    #[test]
+    fn test_detach_keeps_a_derived_chain_for_good() {
+        let source = Signal::new(1);
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let seen_c = Rc::clone(&seen);
+        source
+            .map(|v| v * 10)
+            .subscribe(move |v| seen_c.borrow_mut().push(*v))
+            .detach();
+        source.set(2);
+        assert_eq!(*seen.borrow(), vec![20]);
+        assert_eq!(source.subscriber_count(), 1);
+    }
+
+    #[test]
+    fn test_zip_releases_both_sources() {
+        let (a, b) = (Signal::new(1), Signal::new(2));
+        let pair = a.zip(&b);
+        assert_eq!((a.subscriber_count(), b.subscriber_count()), (1, 1));
+        b.set(5);
+        assert_eq!(pair.get(), (1, 5));
+        drop(pair);
+        assert_eq!((a.subscriber_count(), b.subscriber_count()), (0, 0));
+    }
+
+    /// A source can go away first; what was derived from it keeps its last value.
+    #[test]
+    fn test_weak_signal_and_sources_dropped_first() {
+        let source = Signal::new(3);
+        let weak = source.downgrade();
+        assert_eq!(weak.upgrade().map(|s| s.get()), Some(3));
+        let doubled = source.map(|v| v * 2);
+        drop(source);
+        // The derived Signal still holds its source.
+        assert!(weak.upgrade().is_some());
+        assert_eq!(doubled.get(), 6);
+        drop(doubled);
+        assert!(weak.upgrade().is_none());
+    }
+
+    /// Ending a derived Signal from inside a callback of its own source.
+    #[test]
+    fn test_derived_signal_can_be_dropped_during_a_set() {
+        let source = Signal::new(0);
+        let slot: Rc<RefCell<Option<Signal<i32>>>> = Rc::new(RefCell::new(None));
+        *slot.borrow_mut() = Some(source.map(|v| v + 1));
+        let slot_c = Rc::clone(&slot);
+        let _clear = source.subscribe(move |v| {
+            if *v == 2 {
+                slot_c.borrow_mut().take();
+            }
+        });
+        source.set(1);
+        assert_eq!(slot.borrow().as_ref().map(|s| s.get()), Some(2));
+        source.set(2);
+        assert!(slot.borrow().is_none());
+        assert_eq!(source.subscriber_count(), 1); // only `_clear`
+        source.set(3);
     }
 }
