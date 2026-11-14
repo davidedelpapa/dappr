@@ -89,3 +89,18 @@ value. Listed so it is a decision, not an oversight.
 - **Syntax highlighting** for code blocks in Markdown.
 - **Removing `scan_dir` / `bundle`** from `dappr-styles`: nothing uses them
   since styles are injected at runtime.
+
+## Mermaid diagrams
+
+**What:** `dapp.mermaid(text)`, the counterpart of Streamlit's Mermaid
+components. Parked until a renderer is chosen (measured Nov 2026):
+
+| Option | Wasm cost (smallest build) | State |
+|---|---|---|
+| `mermaid-rs-renderer` 0.3.1 (MIT) | about 2.0 MB, 0.73 MB gzipped, all diagram types | Panics in the browser on `std::time::Instant`; works once three imports are swapped for `web-time`, so it needs a fork or an upstream fix. Accepts invalid input silently; emits `javascript:` links from `click`. Plain SVG, easy to sanitise. |
+| `merman` 0.10.0 (MIT / Apache-2.0) | about 4.8 MB, 1.8 MB gzipped, flowchart only; more per diagram type | Works in the browser as is, closest to real Mermaid, proper errors. Labels are HTML in `<foreignObject>`, harder to sanitise. Keep its ELK layout feature off (EPL-2.0). |
+| Mermaid's own JavaScript, loaded on first use | none | Reference rendering, but needs a CDN or a copy served with the app, which breaks "nothing to add to `index.html`". Not tested. |
+| `flowmaid` | not measured | GPL-3.0: does not fit Dappr's MIT licence. |
+
+Whichever Rust crate is used, its SVG must go through an allowlist before it
+reaches the page, as LaTeX output does.
